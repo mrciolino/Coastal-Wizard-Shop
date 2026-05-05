@@ -534,7 +534,8 @@ export default function App() {
 
             {/* ══ MOBILE TOP BAR (compact, non-scrolling) ══════════════ */}
             <div className="xl:hidden shrink-0 border-b border-slate-700/40 bg-slate-950/95 px-2 pt-2 pb-2 z-10">
-                <div className={`${panel} px-3 py-2`}>
+                <div className={`${panel} px-3 py-2 grid gap-1.5`}>
+                    {/* Row 1: title + Open + Clear */}
                     <div className="flex items-center gap-2">
                         <div className="flex-1 min-w-0">
                             <p className={eyebrow}>5e Scroll Pack Opener</p>
@@ -555,34 +556,37 @@ export default function App() {
                         >
                             Clear
                         </button>
+                    </div>
+                    {/* Row 2: Settings / Spell Odds / Economy */}
+                    <div className="grid grid-cols-3 gap-1.5">
                         <button
                             type="button"
                             onClick={handleMobileSettingsClick}
                             aria-label="Toggle controls"
                             aria-controls="mobile-settings-panel"
                             aria-expanded={showMobileSettings}
-                            className={`shrink-0 rounded-xl px-2.5 py-2 text-sm font-medium transition-all border ${showMobileSettings ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12'}`}
+                            className={`rounded-xl px-2 py-1.5 text-xs font-medium transition-all border ${showMobileSettings ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12'}`}
                         >
-                            ⚙
+                            ⚙ Settings
                         </button>
                         <button
                             type="button"
                             onClick={() => setShowStatsModal(true)}
                             aria-label="Spell odds"
-                            className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-medium transition-all border bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12"
+                            className="rounded-xl px-2 py-1.5 text-xs font-medium transition-all border bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12"
                         >
-                            📊
+                            📊 Odds
                         </button>
                         <button
                             type="button"
                             onClick={() => setShowEconomyModal(true)}
                             aria-label="Economy"
-                            className="shrink-0 rounded-xl px-2.5 py-2 text-sm font-medium transition-all border bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12"
+                            className="rounded-xl px-2 py-1.5 text-xs font-medium transition-all border bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12"
                         >
-                            💰
+                            💰 Market
                         </button>
                     </div>
-                    {lastOpenedAt && <p className="text-xs text-slate-500 mt-1.5 mb-0 leading-none">Last: {lastOpenedAt}</p>}
+                    {lastOpenedAt && <p className="text-xs text-slate-500 mb-0 leading-none">Last: {lastOpenedAt}</p>}
                 </div>
             </div>
 
@@ -1001,23 +1005,23 @@ export default function App() {
             {/* ══ SPELL ODDS MODAL ═══════════════════════════════════ */}
             {showStatsModal && (
                 <div
-                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-4 z-30 overflow-y-auto"
+                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-1 sm:p-4 z-30 overflow-y-auto"
                     onClick={() => { setShowStatsModal(false); setOddsSearch(''); }}
                     role="presentation"
                 >
                     <div
-                        className={`${panel} relative w-full max-w-5xl my-8 flex flex-col`}
-                        style={{ maxHeight: 'calc(100dvh - 4rem)' }}
+                        className={`${panel} relative w-full max-w-5xl my-1 sm:my-8 flex flex-col`}
+                        style={{ maxHeight: 'calc(100dvh - 0.5rem)' }}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="odds-modal-title"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-700/60 shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
                             <div>
-                                <h2 id="odds-modal-title" className="text-lg font-bold text-slate-50 m-0">Spell Odds</h2>
-                                <p className="text-xs text-slate-400 mt-0.5 m-0">Per-card-draw probability using current settings</p>
+                                <h2 id="odds-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">Spell Odds</h2>
+                                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Per-card-draw probability using current settings</p>
                             </div>
                             <button
                                 type="button"
@@ -1029,25 +1033,25 @@ export default function App() {
                             </button>
                         </div>
                         {/* Search */}
-                        <div className="px-4 py-2.5 border-b border-slate-700/60 shrink-0">
+                        <div className="px-2 sm:px-4 py-2 border-b border-slate-700/60 shrink-0">
                             <input
                                 type="search"
-                                placeholder="Filter by name, school, or rarity…"
+                                placeholder="Filter spells…"
                                 value={oddsSearch}
                                 onChange={(e) => setOddsSearch(e.target.value)}
-                                className={inp + ' text-sm'}
+                                className={inp + ' text-xs sm:text-sm'}
                                 aria-label="Filter spells"
                             />
                         </div>
                         {/* Table */}
                         <div className="overflow-y-auto flex-1 min-h-0">
-                            <table className="w-full text-sm border-collapse">
+                            <table className="w-full border-collapse">
                                 <thead className="sticky top-0 bg-slate-900 z-10">
                                     <tr>
-                                        <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
-                                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Chance / draw</th>
-                                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Exp. packs</th>
-                                        <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Gold</th>
+                                        <th className="text-left px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
+                                        <th className="text-right px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Chance</th>
+                                        <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Exp. packs</th>
+                                        <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Gold</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1061,20 +1065,22 @@ export default function App() {
                                         );
                                     }).map(({ spell, pDraw, expectedPacks, goldNeeded }) => (
                                         <tr key={spell.id} className="border-b border-slate-700/30 hover:bg-white/4 transition-colors">
-                                            <td className="px-4 py-2">
-                                                <div className="flex items-center gap-2 flex-nowrap">
-                                                    <span className="text-slate-100 font-medium whitespace-nowrap">{spell.displayName}</span>
+                                            <td className="px-2 sm:px-4 py-1 sm:py-2">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="text-slate-100 font-medium text-xs sm:text-sm whitespace-nowrap">{spell.displayName}</span>
                                                     <span className={`px-1.5 py-0.5 rounded-full text-xs border ${getRarityTagClass(spell.rarity)}`}>{formatRarity(spell.rarity)}</span>
-                                                    <span className={tag}>{spell.school}</span>
+                                                    <span className={tag + ' hidden sm:inline-flex'}>{spell.school}</span>
                                                 </div>
                                             </td>
-                                            <td className="px-4 py-2 text-right text-slate-300 font-mono text-xs">
-                                                {pDraw > 0 ? (pDraw * 100).toFixed(3) + '%' : '—'}
+                                            <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
+                                                <div className="font-mono text-xs text-slate-300">{pDraw > 0 ? (pDraw * 100).toFixed(3) + '%' : '—'}</div>
+                                                <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() + ' pks' : '—'}</div>
+                                                <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{Number.isFinite(goldNeeded) ? goldNeeded.toLocaleString() + 'gp' : '—'}</div>
                                             </td>
-                                            <td className="px-4 py-2 text-right text-slate-300 font-mono text-xs">
+                                            <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
                                                 {Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() : '—'}
                                             </td>
-                                            <td className="px-4 py-2 text-right text-slate-300 font-mono text-xs">
+                                            <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
                                                 {Number.isFinite(goldNeeded) ? goldNeeded.toLocaleString() + ' gp' : '—'}
                                             </td>
                                         </tr>
@@ -1089,23 +1095,23 @@ export default function App() {
             {/* ══ ECONOMY MODAL ══════════════════════════════════════ */}
             {showEconomyModal && (
                 <div
-                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-4 z-30 overflow-y-auto"
+                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-1 sm:p-4 z-30 overflow-y-auto"
                     onClick={() => setShowEconomyModal(false)}
                     role="presentation"
                 >
                     <div
-                        className={`${panel} relative w-full max-w-6xl my-8 flex flex-col`}
-                        style={{ maxHeight: 'calc(100dvh - 4rem)' }}
+                        className={`${panel} relative w-full max-w-6xl my-1 sm:my-8 flex flex-col`}
+                        style={{ maxHeight: 'calc(100dvh - 0.5rem)' }}
                         role="dialog"
                         aria-modal="true"
                         aria-labelledby="economy-modal-title"
                         onClick={(e) => e.stopPropagation()}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-slate-700/60 shrink-0">
+                        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
                             <div>
-                                <h2 id="economy-modal-title" className="text-lg font-bold text-slate-50 m-0">📈 Marketplace</h2>
-                                <p className="text-xs text-slate-400 mt-0.5 m-0">Simulated market prices based on pack pull odds · refreshes each open</p>
+                                <h2 id="economy-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">📈 Marketplace</h2>
+                                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Simulated market prices based on pack pull odds · refreshes each open</p>
                             </div>
                             <button
                                 type="button"
@@ -1126,13 +1132,13 @@ export default function App() {
                         ) : (
                             <>
                                 {/* Search + sort controls */}
-                                <div className="px-4 py-2.5 border-b border-slate-700/60 shrink-0 flex flex-wrap gap-2 items-center">
+                                <div className="px-2 sm:px-4 py-2 border-b border-slate-700/60 shrink-0 flex flex-wrap gap-1.5 sm:gap-2 items-center">
                                     <input
                                         type="search"
-                                        placeholder="Filter by name, school, or rarity…"
+                                        placeholder="Filter spells…"
                                         value={marketSearch}
                                         onChange={(e) => setMarketSearch(e.target.value)}
-                                        className={inp + ' flex-1 min-w-40'}
+                                        className={inp + ' flex-1 min-w-32 text-xs sm:text-sm'}
                                         aria-label="Filter market"
                                     />
                                     <span className="text-xs text-slate-500 shrink-0">Sort:</span>
@@ -1144,7 +1150,7 @@ export default function App() {
                                                 if (marketSortKey === key) setMarketSortDir((d) => d === 'asc' ? 'desc' : 'asc');
                                                 else { setMarketSortKey(key); setMarketSortDir('desc'); }
                                             }}
-                                            className={`shrink-0 rounded-lg px-2.5 py-1 text-xs font-medium border transition-all ${marketSortKey === key ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/5 text-slate-400 border-slate-700/50 hover:bg-white/10'}`}
+                                            className={`shrink-0 rounded-lg px-2 py-1 text-xs font-medium border transition-all ${marketSortKey === key ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/5 text-slate-400 border-slate-700/50 hover:bg-white/10'}`}
                                         >
                                             {key === 'name' ? 'Name' : key === 'price' ? 'Price' : 'Change'}
                                             {marketSortKey === key ? (marketSortDir === 'desc' ? ' ▼' : ' ▲') : ''}
@@ -1154,15 +1160,15 @@ export default function App() {
 
                                 {/* Table */}
                                 <div className="overflow-y-auto flex-1 min-h-0">
-                                    <table className="w-full text-sm border-collapse">
+                                    <table className="w-full border-collapse">
                                         <thead className="sticky top-0 bg-slate-900 z-10">
                                             <tr>
-                                                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
-                                                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Price</th>
-                                                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✦ Shiny</th>
-                                                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✍ Autograph</th>
-                                                <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">24h</th>
-                                                <th className="px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">14-day</th>
+                                                <th className="text-left px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
+                                                <th className="text-right px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Price</th>
+                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✦ Shiny</th>
+                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✍ Autograph</th>
+                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">24h</th>
+                                                <th className="px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Trend</th>
                                             </tr>
                                         </thead>
                                         <tbody>
@@ -1184,30 +1190,38 @@ export default function App() {
                                                 })
                                                 .map(({ spell, currentPrice, change, changePct, history, shinyPrice, autographPrice }) => (
                                                     <tr key={spell.id} className="border-b border-slate-700/30 hover:bg-white/4 transition-colors">
-                                                        <td className="px-4 py-2">
-                                                            <div className="flex items-center gap-2 flex-nowrap">
-                                                                <span className="text-slate-100 font-medium whitespace-nowrap">{spell.displayName}</span>
+                                                        <td className="px-2 sm:px-4 py-1 sm:py-2">
+                                                            <div className="flex items-center gap-1 flex-wrap">
+                                                                <span className="text-slate-100 font-medium text-xs sm:text-sm whitespace-nowrap">{spell.displayName}</span>
                                                                 <span className={`px-1.5 py-0.5 rounded-full text-xs border ${getRarityTagClass(spell.rarity)}`}>{formatRarity(spell.rarity)}</span>
-                                                                <span className={tag}>{spell.school}</span>
+                                                                <span className={tag + ' hidden sm:inline-flex'}>{spell.school}</span>
+                                                            </div>
+                                                            {/* Mobile: shiny + autograph sub-line */}
+                                                            <div className="sm:hidden flex gap-2 mt-0.5">
+                                                                <span className="font-mono text-xs text-slate-400">✦ {shinyPrice.toLocaleString()}gp</span>
+                                                                {autographPrice != null && <span className="font-mono text-xs text-amber-400">✍ {autographPrice.toLocaleString()}gp</span>}
                                                             </div>
                                                         </td>
-                                                        <td className="px-4 py-2 text-right font-mono text-xs text-slate-100 font-semibold whitespace-nowrap">
-                                                            {currentPrice.toLocaleString()} gp
+                                                        <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
+                                                            <div className="font-mono text-xs sm:text-sm text-slate-100 font-semibold whitespace-nowrap">{currentPrice.toLocaleString()} gp</div>
+                                                            <div className={`font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                                {change >= 0 ? '+' : ''}{changePct.toFixed(1)}%
+                                                            </div>
                                                         </td>
-                                                        <td className="px-4 py-2 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
+                                                        <td className="hidden sm:table-cell px-4 py-2 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
                                                             {shinyPrice.toLocaleString()} gp
                                                         </td>
-                                                        <td className="px-4 py-2 text-right font-mono text-xs whitespace-nowrap">
+                                                        <td className="hidden sm:table-cell px-4 py-2 text-right font-mono text-xs whitespace-nowrap">
                                                             {autographPrice != null
                                                                 ? <span className="text-amber-300">{autographPrice.toLocaleString()} gp</span>
                                                                 : <span className="text-slate-600">—</span>
                                                             }
                                                         </td>
-                                                        <td className={`px-4 py-2 text-right font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        <td className={`hidden sm:table-cell px-4 py-2 text-right font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                                             <div>{change >= 0 ? '+' : ''}{change.toLocaleString()} gp</div>
                                                             <div className="opacity-70">{change >= 0 ? '+' : ''}{changePct.toFixed(1)}%</div>
                                                         </td>
-                                                        <td className="px-4 py-2">
+                                                        <td className="px-2 sm:px-4 py-1 sm:py-2">
                                                             <Sparkline prices={history} up={change >= 0} />
                                                         </td>
                                                     </tr>
