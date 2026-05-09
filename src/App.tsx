@@ -5,29 +5,17 @@ import {
     currencyPerPack,
     rarityWeights as defaultRarityWeights,
     spellCards,
-    type SpellCard,
-    type SpellPool,
     type SpellRarity,
 } from './utils/spells';
-import { weightedPick } from './utils/roll';
+import { generatePack, countBy, hasCard, type GeneratedResult, type SelectedCard } from './utils/pack';
+import { computeSpellOdds } from './utils/odds';
+import { computeMarketData, type MarketEntry } from './utils/pricing';
+import { rarityOrder, schoolOrder, formatRarity } from './utils/format';
+import { panel, field, row, tag, shinyTag, autographedTag, inp, eyebrow, secTitle, statLabel, muted, getRarityTagClass } from './components/tokens';
+import OddsModal from './components/OddsModal';
+import MarketModal from './components/MarketModal';
 
 // ── Types ────────────────────────────────────────────────
-type GeneratedResult = {
-    card: SpellCard;
-    pool: SpellPool;
-    isShiny: boolean;
-    isAutographed: boolean;
-};
-
-type SelectedCard = {
-    card: SpellCard;
-    pool: SpellPool;
-    isShiny: boolean;
-    isAutographed: boolean;
-    packIndex: number;
-    cardIndex: number;
-};
-
 type PackSettingKey = 'gold' | 'packPrice' | 'cardsInPack' | 'conjurationRate';
 
 type PackSettingConfig = {
@@ -41,79 +29,7 @@ type PackSettingConfig = {
     set: (value: number) => void;
 };
 
-type MarketEntry = {
-    spell: SpellCard;
-    currentPrice: number;
-    yesterdayPrice: number;
-    change: number;
-    changePct: number;
-    history: number[];   // 14 days oldest→newest, last = currentPrice
-    shinyPrice: number;
-    autographPrice: number | null;
-};
-
-// ── Constants ────────────────────────────────────────────
-const rarityOrder: SpellRarity[] = ['common', 'uncommon', 'rare', 'very_rare', 'legendary'];
-const schoolOrder = [
-    'Conjuration', 'Abjuration', 'Divination', 'Enchantment',
-    'Evocation', 'Illusion', 'Necromancy', 'Transmutation', 'Unknown',
-] as const;
-
-// ── Design tokens ────────────────────────────────────────
-const panel = 'bg-slate-900/90 border border-slate-700/60 shadow-xl backdrop-blur-sm rounded-2xl';
-const field = 'grid gap-1 p-2 rounded-xl bg-white/5 border border-slate-700/50';
-const row = 'flex justify-between gap-3 px-3 py-1.5 text-xs rounded-lg bg-white/5 border border-slate-700/50';
-const tag = 'px-2 py-0.5 rounded-full text-indigo-200 text-xs bg-indigo-500/15 border border-indigo-400/15';
-const shinyTag = 'px-2 py-0.5 rounded-full text-xs bg-gradient-to-r from-slate-300/40 to-slate-400/20 border border-slate-300/30 text-white';
-const autographedTag = 'px-2 py-0.5 rounded-full text-xs bg-gradient-to-r from-amber-400/40 to-yellow-300/20 border border-amber-400/30 text-amber-100';
-const rarityTagClasses: Record<SpellRarity, string> = {
-    common: 'text-slate-200 bg-slate-800/15 border-slate-300/20',
-    uncommon: 'text-emerald-200 bg-emerald-800/15 border-emerald-400/20',
-    rare: 'text-cyan-200 bg-cyan-800/15 border-cyan-400/20',
-    very_rare: 'text-purple-200 bg-purple-800/15 border-purple-400/20',
-    legendary: 'text-amber-200 bg-amber-800/15 border-amber-400/25',
-};
-const inp = 'w-full border border-slate-600/50 rounded-lg py-1.5 px-2.5 text-slate-50 bg-slate-950/60 outline-none focus:ring-1 focus:ring-indigo-500/50 focus:border-indigo-500/40 transition-colors text-sm';
-const eyebrow = 'text-xs uppercase tracking-widest text-sky-400 m-0 mb-0.5 font-medium';
-const secTitle = 'text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-0';
-const statLabel = 'text-xs font-medium text-indigo-300/70 uppercase tracking-wider leading-none';
-const muted = 'text-slate-400 text-sm';
-
 // ── Helpers ──────────────────────────────────────────────
-function formatPool(pool: SpellPool) {
-    return pool === 'conjuration' ? 'Conjuration' : 'Staple';
-}
-function formatRarity(r: SpellCard['rarity']) {
-    return r.replace('_', ' ');
-}
-function getRarityTagClass(rarity: SpellRarity) {
-    return rarityTagClasses[rarity];
-}
-function generatePack(n: number, conjRate: number, weights: Record<SpellRarity, number>): GeneratedResult[] {
-    const conj = spellCards.filter((c) => c.pool === 'conjuration');
-    const staple = spellCards.filter((c) => c.pool === 'staple');
-    return Array.from({ length: n }, () => {
-        const pool: SpellPool = Math.random() < conjRate ? 'conjuration' : 'staple';
-        const source = pool === 'conjuration' ? conj : staple;
-        const cards = source.length > 0 ? source : spellCards;
-        if (cards.length === 0) {
-            throw new Error('No spell cards are available to generate a pack.');
-        }
-        const card = weightedPick(cards, (e) => weights[e.rarity] ?? 0);
-        const isAutographed = (card.rarity === 'rare' || card.rarity === 'legendary') && Math.random() < 0.05;
-        return { card, pool, isShiny: Math.random() < 0.10, isAutographed }; // 10% shiny rate, just for fun
-    });
-}
-function countBy<T extends string>(values: T[]) {
-    return values.reduce<Record<T, number>>((acc, v) => {
-        acc[v] = (acc[v] ?? 0) + 1;
-        return acc;
-    }, {} as Record<T, number>);
-}
-function hasCard(entry: GeneratedResult | null | undefined): entry is GeneratedResult {
-    return entry?.card != null;
-}
-
 function toWeightInputs(weights: Record<SpellRarity, number>) {
     return Object.fromEntries(
         rarityOrder.map((rarity) => [rarity, String(weights[rarity])]),
@@ -123,25 +39,6 @@ function toPackSettingInputs(values: Record<PackSettingKey, number>) {
     return Object.fromEntries(
         Object.entries(values).map(([key, value]) => [key, String(value)]),
     ) as Record<PackSettingKey, string>;
-}
-
-function Sparkline({ prices, up }: { prices: number[]; up: boolean }) {
-    if (prices.length < 2) return <span className="inline-block w-20 h-7" />;
-    const min = Math.min(...prices);
-    const max = Math.max(...prices);
-    const range = max - min || 1;
-    const W = 80, H = 28, P = 2;
-    const pts = prices.map((v, i) => {
-        const x = P + (i / (prices.length - 1)) * (W - P * 2);
-        const y = P + (1 - (v - min) / range) * (H - P * 2);
-        return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
-    const color = up ? '#4ade80' : '#f87171';
-    return (
-        <svg width={W} height={H} className="shrink-0 overflow-visible">
-            <polyline points={pts} fill="none" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-    );
 }
 
 // ── Component ────────────────────────────────────────────
@@ -165,11 +62,7 @@ export default function App() {
     const [showMobileStats, setShowMobileStats] = useState(false);
     const [showStatsModal, setShowStatsModal] = useState(false);
     const [showEconomyModal, setShowEconomyModal] = useState(false);
-    const [oddsSearch, setOddsSearch] = useState('');
     const [marketData, setMarketData] = useState<MarketEntry[] | null>(null);
-    const [marketSearch, setMarketSearch] = useState('');
-    const [marketSortKey, setMarketSortKey] = useState<'name' | 'price' | 'change'>('price');
-    const [marketSortDir, setMarketSortDir] = useState<'asc' | 'desc'>('desc');
     const touchStart = useRef<{ x: number; y: number } | null>(null);
     const mobileSettingsRef = useRef<HTMLDivElement | null>(null);
 
@@ -202,7 +95,7 @@ export default function App() {
 
     useEffect(() => {
         const handler = (e: KeyboardEvent) => {
-            if (e.key === 'Escape') { setSelectedCard(null); setShowStatsModal(false); setOddsSearch(''); setShowEconomyModal(false); return; }
+            if (e.key === 'Escape') { setSelectedCard(null); setShowStatsModal(false); setShowEconomyModal(false); return; }
             if (!selectedCard) return;
             if (e.key === 'ArrowLeft') { e.preventDefault(); navigate(0, -1); }
             if (e.key === 'ArrowRight') { e.preventDefault(); navigate(0, 1); }
@@ -218,66 +111,22 @@ export default function App() {
         focusMobileSettingsPanel();
     }, [showMobileSettings, focusMobileSettingsPanel]);
 
-    const spellOdds = useMemo(() => {
-        const conjRate = conjurationRate / 100;
-        const conjCards = spellCards.filter((c) => c.pool === 'conjuration');
-        const stapleCards = spellCards.filter((c) => c.pool === 'staple');
-        const conjWeight = conjCards.reduce((s, c) => s + (rarityWeights[c.rarity] ?? 0), 0);
-        const stapleWeight = stapleCards.reduce((s, c) => s + (rarityWeights[c.rarity] ?? 0), 0);
-        return spellCards.map((spell) => {
-            const pPool = spell.pool === 'conjuration' ? conjRate : 1 - conjRate;
-            const poolWeight = spell.pool === 'conjuration' ? conjWeight : stapleWeight;
-            // Probability of drawing this spell on a single card slot
-            const pDraw = poolWeight > 0 ? pPool * (rarityWeights[spell.rarity] ?? 0) / poolWeight : 0;
-            // Probability of hitting it at least once in a full pack of n cards
-            const pHitInPack = pDraw > 0 ? 1 - Math.pow(1 - pDraw, cardsInPack) : 0;
-            // Expected packs (geometric distribution mean): E[packs] = 1 / pHitInPack
-            const expectedPacks = pHitInPack > 0 ? 1 / pHitInPack : Infinity;
-            // Gold needed: ceil because you must buy whole packs
-            const goldNeeded = Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks) * packPrice : Infinity;
-            return { spell, pDraw, expectedPacks, goldNeeded };
-        }).sort((a, b) => b.pDraw - a.pDraw);
-    }, [conjurationRate, rarityWeights, cardsInPack, packPrice]);
+    const spellOdds = useMemo(
+        () => computeSpellOdds({ conjurationRate, rarityWeights, cardsInPack, packPrice }),
+        [conjurationRate, rarityWeights, cardsInPack, packPrice],
+    );
 
     useEffect(() => {
         if (!showEconomyModal) {
             setMarketData(null);
-            setMarketSearch('');
             return;
         }
         setMarketData(null);
         const timer = setTimeout(() => {
-            // Price model: EV of opening one pack = packPrice.
-            // Each card's fair value = (packPrice / cardsInPack) × (avgPDraw / pDraw)
-            // so sum_over_slot(pDraw × price) = packPrice/cardsInPack per slot, × cardsInPack = packPrice ✓
-            const avgPDraw = spellOdds.length > 0 ? 1 / spellOdds.length : 1;
-            const data: MarketEntry[] = spellOdds.map(({ spell, pDraw }) => {
-                const fairValue = pDraw > 0
-                    ? (packPrice / cardsInPack) * (avgPDraw / pDraw)
-                    : packPrice / cardsInPack;
-                const base = Math.max(1, fairValue);
-                const currentPrice = Math.round(base * (0.85 + Math.random() * 0.30));
-                const yesterdayPrice = Math.round(currentPrice * (0.93 + Math.random() * 0.14));
-                const change = currentPrice - yesterdayPrice;
-                const changePct = yesterdayPrice > 0 ? (change / yesterdayPrice) * 100 : 0;
-                const history: number[] = new Array(14);
-                history[13] = currentPrice;
-                let p = currentPrice;
-                for (let i = 12; i >= 0; i--) {
-                    p = p / (0.95 + Math.random() * 0.10);
-                    history[i] = Math.round(Math.max(1, p));
-                }
-                const shinyPrice = Math.round(currentPrice * (7 + Math.random() * 6));
-                const isAutographable = spell.rarity === 'rare' || spell.rarity === 'legendary';
-                const autographPrice = isAutographable
-                    ? Math.round(currentPrice * (spell.rarity === 'legendary' ? 20 + Math.random() * 10 : 12 + Math.random() * 8))
-                    : null;
-                return { spell, currentPrice, yesterdayPrice, change, changePct, history, shinyPrice, autographPrice };
-            });
-            setMarketData(data);
+            setMarketData(computeMarketData(spellOdds, { packPrice, cardsInPack }));
         }, 400);
         return () => clearTimeout(timer);
-    }, [showEconomyModal, spellOdds]);
+    }, [showEconomyModal, spellOdds, packPrice, cardsInPack]);
 
     const packCount = packPrice > 0 ? Math.max(0, Math.floor(gold / packPrice)) : 0;
     const totalCards = packCount * cardsInPack;
@@ -1004,236 +853,12 @@ export default function App() {
 
             {/* ══ SPELL ODDS MODAL ═══════════════════════════════════ */}
             {showStatsModal && (
-                <div
-                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-1 sm:p-4 z-30 overflow-y-auto"
-                    onClick={() => { setShowStatsModal(false); setOddsSearch(''); }}
-                    role="presentation"
-                >
-                    <div
-                        className={`${panel} relative w-full max-w-5xl my-1 sm:my-8 flex flex-col`}
-                        style={{ maxHeight: 'calc(100dvh - 0.5rem)' }}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="odds-modal-title"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
-                            <div>
-                                <h2 id="odds-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">Spell Odds</h2>
-                                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Per-card-draw probability using current settings</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => { setShowStatsModal(false); setOddsSearch(''); }}
-                                aria-label="Close"
-                                className="w-8 h-8 shrink-0 rounded-xl grid place-items-center bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60 text-lg p-0 transition-all hover:bg-slate-700/60 cursor-pointer"
-                            >
-                                ×
-                            </button>
-                        </div>
-                        {/* Search */}
-                        <div className="px-2 sm:px-4 py-2 border-b border-slate-700/60 shrink-0">
-                            <input
-                                type="search"
-                                placeholder="Filter spells…"
-                                value={oddsSearch}
-                                onChange={(e) => setOddsSearch(e.target.value)}
-                                className={inp + ' text-xs sm:text-sm'}
-                                aria-label="Filter spells"
-                            />
-                        </div>
-                        {/* Table */}
-                        <div className="overflow-y-auto flex-1 min-h-0">
-                            <table className="w-full border-collapse">
-                                <thead className="sticky top-0 bg-slate-900 z-10">
-                                    <tr>
-                                        <th className="text-left px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
-                                        <th className="text-right px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Chance</th>
-                                        <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Exp. packs</th>
-                                        <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Gold</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {spellOdds.filter(({ spell }) => {
-                                        const q = oddsSearch.trim().toLowerCase();
-                                        if (!q) return true;
-                                        return (
-                                            spell.displayName.toLowerCase().includes(q) ||
-                                            spell.school.toLowerCase().includes(q) ||
-                                            spell.rarity.replace('_', ' ').toLowerCase().includes(q)
-                                        );
-                                    }).map(({ spell, pDraw, expectedPacks, goldNeeded }) => (
-                                        <tr key={spell.id} className="border-b border-slate-700/30 hover:bg-white/4 transition-colors">
-                                            <td className="px-2 sm:px-4 py-1 sm:py-2">
-                                                <div className="flex items-center gap-1.5 flex-wrap">
-                                                    <span className="text-slate-100 font-medium text-xs sm:text-sm whitespace-nowrap">{spell.displayName}</span>
-                                                    <span className={`px-1.5 py-0.5 rounded-full text-xs border ${getRarityTagClass(spell.rarity)}`}>{formatRarity(spell.rarity)}</span>
-                                                    <span className={tag + ' hidden sm:inline-flex'}>{spell.school}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
-                                                <div className="font-mono text-xs text-slate-300">{pDraw > 0 ? (pDraw * 100).toFixed(3) + '%' : '—'}</div>
-                                                <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() + ' pks' : '—'}</div>
-                                                <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{Number.isFinite(goldNeeded) ? goldNeeded.toLocaleString() + 'gp' : '—'}</div>
-                                            </td>
-                                            <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
-                                                {Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() : '—'}
-                                            </td>
-                                            <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
-                                                {Number.isFinite(goldNeeded) ? goldNeeded.toLocaleString() + ' gp' : '—'}
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
+                <OddsModal onClose={() => setShowStatsModal(false)} spellOdds={spellOdds} />
             )}
 
             {/* ══ ECONOMY MODAL ══════════════════════════════════════ */}
             {showEconomyModal && (
-                <div
-                    className="fixed inset-0 bg-slate-950/92 backdrop-blur-md flex items-start justify-center p-1 sm:p-4 z-30 overflow-y-auto"
-                    onClick={() => setShowEconomyModal(false)}
-                    role="presentation"
-                >
-                    <div
-                        className={`${panel} relative w-full max-w-6xl my-1 sm:my-8 flex flex-col`}
-                        style={{ maxHeight: 'calc(100dvh - 0.5rem)' }}
-                        role="dialog"
-                        aria-modal="true"
-                        aria-labelledby="economy-modal-title"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {/* Header */}
-                        <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
-                            <div>
-                                <h2 id="economy-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">📈 Marketplace</h2>
-                                <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Simulated market prices based on pack pull odds · refreshes each open</p>
-                            </div>
-                            <button
-                                type="button"
-                                onClick={() => setShowEconomyModal(false)}
-                                aria-label="Close"
-                                className="w-8 h-8 shrink-0 rounded-xl grid place-items-center bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60 text-lg p-0 transition-all hover:bg-slate-700/60 cursor-pointer"
-                            >
-                                ×
-                            </button>
-                        </div>
-
-                        {marketData === null ? (
-                            /* Loading */
-                            <div className="flex flex-col items-center justify-center py-24 gap-3">
-                                <div className="w-8 h-8 rounded-full border-2 border-slate-700 border-t-indigo-400 animate-spin" />
-                                <p className="text-slate-400 text-sm">Computing market prices…</p>
-                            </div>
-                        ) : (
-                            <>
-                                {/* Search + sort controls */}
-                                <div className="px-2 sm:px-4 py-2 border-b border-slate-700/60 shrink-0 flex flex-wrap gap-1.5 sm:gap-2 items-center">
-                                    <input
-                                        type="search"
-                                        placeholder="Filter spells…"
-                                        value={marketSearch}
-                                        onChange={(e) => setMarketSearch(e.target.value)}
-                                        className={inp + ' flex-1 min-w-32 text-xs sm:text-sm'}
-                                        aria-label="Filter market"
-                                    />
-                                    <span className="text-xs text-slate-500 shrink-0">Sort:</span>
-                                    {(['name', 'price', 'change'] as const).map((key) => (
-                                        <button
-                                            key={key}
-                                            type="button"
-                                            onClick={() => {
-                                                if (marketSortKey === key) setMarketSortDir((d) => d === 'asc' ? 'desc' : 'asc');
-                                                else { setMarketSortKey(key); setMarketSortDir('desc'); }
-                                            }}
-                                            className={`shrink-0 rounded-lg px-2 py-1 text-xs font-medium border transition-all ${marketSortKey === key ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/5 text-slate-400 border-slate-700/50 hover:bg-white/10'}`}
-                                        >
-                                            {key === 'name' ? 'Name' : key === 'price' ? 'Price' : 'Change'}
-                                            {marketSortKey === key ? (marketSortDir === 'desc' ? ' ▼' : ' ▲') : ''}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {/* Table */}
-                                <div className="overflow-y-auto flex-1 min-h-0">
-                                    <table className="w-full border-collapse">
-                                        <thead className="sticky top-0 bg-slate-900 z-10">
-                                            <tr>
-                                                <th className="text-left px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
-                                                <th className="text-right px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Price</th>
-                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✦ Shiny</th>
-                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✍ Autograph</th>
-                                                <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">24h</th>
-                                                <th className="px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Trend</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            {[...marketData]
-                                                .filter(({ spell }) => {
-                                                    const q = marketSearch.trim().toLowerCase();
-                                                    if (!q) return true;
-                                                    return (
-                                                        spell.displayName.toLowerCase().includes(q) ||
-                                                        spell.school.toLowerCase().includes(q) ||
-                                                        spell.rarity.replace('_', ' ').toLowerCase().includes(q)
-                                                    );
-                                                })
-                                                .sort((a, b) => {
-                                                    const dir = marketSortDir === 'asc' ? 1 : -1;
-                                                    if (marketSortKey === 'name') return dir * a.spell.displayName.localeCompare(b.spell.displayName);
-                                                    if (marketSortKey === 'price') return dir * (a.currentPrice - b.currentPrice);
-                                                    return dir * (a.changePct - b.changePct);
-                                                })
-                                                .map(({ spell, currentPrice, change, changePct, history, shinyPrice, autographPrice }) => (
-                                                    <tr key={spell.id} className="border-b border-slate-700/30 hover:bg-white/4 transition-colors">
-                                                        <td className="px-2 sm:px-4 py-1 sm:py-2">
-                                                            <div className="flex items-center gap-1 flex-wrap">
-                                                                <span className="text-slate-100 font-medium text-xs sm:text-sm whitespace-nowrap">{spell.displayName}</span>
-                                                                <span className={`px-1.5 py-0.5 rounded-full text-xs border ${getRarityTagClass(spell.rarity)}`}>{formatRarity(spell.rarity)}</span>
-                                                                <span className={tag + ' hidden sm:inline-flex'}>{spell.school}</span>
-                                                            </div>
-                                                            {/* Mobile: shiny + autograph sub-line */}
-                                                            <div className="sm:hidden flex gap-2 mt-0.5">
-                                                                <span className="font-mono text-xs text-slate-400">✦ {shinyPrice.toLocaleString()}gp</span>
-                                                                {autographPrice != null && <span className="font-mono text-xs text-amber-400">✍ {autographPrice.toLocaleString()}gp</span>}
-                                                            </div>
-                                                        </td>
-                                                        <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
-                                                            <div className="font-mono text-xs sm:text-sm text-slate-100 font-semibold whitespace-nowrap">{currentPrice.toLocaleString()} gp</div>
-                                                            <div className={`font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                                {change >= 0 ? '+' : ''}{changePct.toFixed(1)}%
-                                                            </div>
-                                                        </td>
-                                                        <td className="hidden sm:table-cell px-4 py-2 text-right font-mono text-xs text-slate-300 whitespace-nowrap">
-                                                            {shinyPrice.toLocaleString()} gp
-                                                        </td>
-                                                        <td className="hidden sm:table-cell px-4 py-2 text-right font-mono text-xs whitespace-nowrap">
-                                                            {autographPrice != null
-                                                                ? <span className="text-amber-300">{autographPrice.toLocaleString()} gp</span>
-                                                                : <span className="text-slate-600">—</span>
-                                                            }
-                                                        </td>
-                                                        <td className={`hidden sm:table-cell px-4 py-2 text-right font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                                                            <div>{change >= 0 ? '+' : ''}{change.toLocaleString()} gp</div>
-                                                            <div className="opacity-70">{change >= 0 ? '+' : ''}{changePct.toFixed(1)}%</div>
-                                                        </td>
-                                                        <td className="px-2 sm:px-4 py-1 sm:py-2">
-                                                            <Sparkline prices={history} up={change >= 0} />
-                                                        </td>
-                                                    </tr>
-                                                ))
-                                            }
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </>
-                        )}
-                    </div>
-                </div>
+                <MarketModal onClose={() => setShowEconomyModal(false)} marketData={marketData} />
             )}
         </main>
     );
