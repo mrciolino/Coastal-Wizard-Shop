@@ -65,14 +65,14 @@ function defaultInputs(): SimInputs {
         conjurationRate: Math.round(conjurationChance * 100),
         levelWeights: { ...defaultLevelWeights },
         baseRate: DEFAULT_VOLATILITY.baseRate,
-        shinyChance: 0.02,
-        autographChance: 0.04278,
-        shinyMultiplierAvg: DEFAULT_VOLATILITY.shinyMin + DEFAULT_VOLATILITY.shinyRange / 2,
-        autoMultiplierAvg: DEFAULT_VOLATILITY.autoMin + DEFAULT_VOLATILITY.autoRange / 2,
-        autoLegMultiplierAvg: DEFAULT_VOLATILITY.autoLegMin + DEFAULT_VOLATILITY.autoLegRange / 2,
+        shinyChance: 0.093668422968291,
+        autographChance: 0.023703215398704562,
+        shinyMultiplierAvg: 1.1049218858790801,
+        autoMultiplierAvg: 1.0919201993422551,
+        autoLegMultiplierAvg: 2.2202536900734455,
         cardWeightOverrides: {
-            '9-True Resurrection-Necromancy': 0.5767,
-            '9-Wish-Conjuration1': 0.06525,
+            '9-True Resurrection-Necromancy': 0.5905,
+            '9-Wish-Conjuration1': 0.0884,
         },
     };
 }
@@ -171,43 +171,35 @@ type SearchResult = {
     sse: number; // sum-squared error of log(avgFair / target)
 };
 
-/** Returns a value uniformly within ±25% of `base`, clamped to [lo, hi]. */
-function jitter(base: number, lo: number, hi: number): number {
-    const v = base * (0.75 + Math.random() * 0.5);
+/** Returns a value uniformly within ±spread of `base`, clamped to [lo, hi]. */
+function jitter(base: number, lo: number, hi: number, spread = 0.25): number {
+    const v = base * (1 - spread + Math.random() * spread * 2);
     return Math.min(hi, Math.max(lo, v));
 }
 
-function randomSearch(base: SimInputs, iterations: number, deadline: number): SearchResult[] {
+function randomSearch(base: SimInputs, iterations: number, deadline: number, spread = 0.25): SearchResult[] {
     const results: SearchResult[] = [];
     for (let i = 0; i < iterations; i++) {
         if (Date.now() > deadline) break;
         const candidate: SimInputs = {
             ...base,
-            conjurationRate: Math.round(40 + Math.random() * 50), // 40–90
-            baseRate: 0.6 + Math.random() * 0.4,                  // 0.6–1.0
-            levelWeights: {
-                0: 10 + Math.random() * 40,   // 10–50
-                1: 10 + Math.random() * 35,   // 10–45
-                2: 5 + Math.random() * 30,    // 5–35
-                3: 3 + Math.random() * 25,    // 3–28
-                4: 1 + Math.random() * 20,    // 1–21
-                5: 1 + Math.random() * 18,    // 1–19
-                6: 0.3 + Math.random() * 10,  // 0.3–10.3
-                7: 0.1 + Math.random() * 7,   // 0.1–7.1
-                8: 0.05 + Math.random() * 5,  // 0.05–5.05
-                9: 0.05 + Math.random() * 5,  // 0.05–5.05
-            },
-            // Variants: ±25% of current value, clamped to allowed ranges
-            shinyChance: jitter(base.shinyChance, 0.02, 0.20),
-            autographChance: jitter(base.autographChance, 0.02, 0.20),
-            shinyMultiplierAvg: jitter(base.shinyMultiplierAvg, 1, 5),
-            autoMultiplierAvg: jitter(base.autoMultiplierAvg, 1, 5),
-            autoLegMultiplierAvg: jitter(base.autoLegMultiplierAvg, 1, 5),
-            // Card weight overrides: ±25% of current value, clamped to [0.001, 5]
+            conjurationRate: Math.round(jitter(base.conjurationRate, 40, 90, spread)),
+            baseRate: jitter(base.baseRate, 0.1, 2, spread),
+            levelWeights: Object.fromEntries(
+                (Object.keys(base.levelWeights) as unknown as SpellLevel[]).map((k) => [
+                    k,
+                    jitter(base.levelWeights[k], 0.001, Infinity, spread),
+                ])
+            ) as Record<SpellLevel, number>,
+            shinyChance: jitter(base.shinyChance, 0.02, 0.20, spread),
+            autographChance: jitter(base.autographChance, 0.02, 0.20, spread),
+            shinyMultiplierAvg: jitter(base.shinyMultiplierAvg, 1, 5, spread),
+            autoMultiplierAvg: jitter(base.autoMultiplierAvg, 1, 5, spread),
+            autoLegMultiplierAvg: jitter(base.autoLegMultiplierAvg, 1, 5, spread),
             cardWeightOverrides: {
                 ...base.cardWeightOverrides,
-                [WISH_FILE]: jitter(base.cardWeightOverrides[WISH_FILE] ?? 1, 0.001, 5),
-                [TRUEREZ_FILE]: jitter(base.cardWeightOverrides[TRUEREZ_FILE] ?? 1, 0.001, 5),
+                [WISH_FILE]: jitter(base.cardWeightOverrides[WISH_FILE] ?? 1, 0.001, 5, spread),
+                [TRUEREZ_FILE]: jitter(base.cardWeightOverrides[TRUEREZ_FILE] ?? 1, 0.001, 5, spread),
             },
         };
         // Normalize weights to sum to 100 (preserves ratios)
@@ -574,7 +566,7 @@ export default function Simulation() {
             setBoLooping(false);
             return;
         }
-        const top = runBayesOpt(boLoopInputsRef.current, boIter, Date.now() + 10_000);
+        const top = randomSearch(boLoopInputsRef.current, searchIter, Date.now() + 10_000, 0.50);
         const best = top[0];
         boLoopInputsRef.current = best.inputs;
         setBoResults(top);
@@ -646,7 +638,7 @@ export default function Simulation() {
                                 label={LEVEL_LABELS[lvl]}
                                 value={inputs.levelWeights[lvl]}
                                 onChange={(v) => updateWeight(lvl, v)}
-                                step={0.05}
+                                step={0.01}
                                 min={0}
                             />
                         ))}

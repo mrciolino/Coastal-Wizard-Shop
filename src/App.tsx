@@ -144,7 +144,7 @@ export default function App() {
     }, [visiblePacks.length, renderedPackCount]);
 
     const spellOdds = useMemo(
-        () => computeSpellOdds({ conjurationRate, levelWeights, cardsInPack, packPrice }),
+        () => computeSpellOdds({ conjurationRate: conjurationRate, levelWeights, cardsInPack, packPrice }),
         [conjurationRate, levelWeights, cardsInPack, packPrice],
     );
 
@@ -333,11 +333,11 @@ export default function App() {
                 <p className={secTitle}>Pack settings</p>
                 <div className="grid grid-cols-2 gap-2">
                     {packSettings.map(({ key, label, inputValue, min, max, step }) => (
-                        <label key={label} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
-                            <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{label}</span>
-                            <input type="number" inputMode="numeric" min={min} max={max} step={step} value={inputValue}
-                                onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
-                        </label>
+                            <label key={label} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
+                                <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{label}</span>
+                                <input type="number" inputMode="numeric" min={min} max={max} step={step} value={inputValue}
+                                    onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
+                            </label>
                     ))}
                 </div>
             </div>
@@ -588,11 +588,11 @@ export default function App() {
                         <div className="px-4 py-3 border-b border-slate-700/50 grid gap-2.5">
                             <p className={secTitle}>Pack settings</p>
                             {packSettings.map(({ key, label, inputValue, min, max, step }) => (
-                                <label key={label} className={field}>
-                                    <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{label}</span>
-                                    <input type="number" min={min} max={max} step={step} value={inputValue}
-                                        onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
-                                </label>
+                                    <label key={label} className={field}>
+                                        <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{label}</span>
+                                        <input type="number" min={min} max={max} step={step} value={inputValue}
+                                            onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
+                                    </label>
                             ))}
                         </div>
 

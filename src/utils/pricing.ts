@@ -54,7 +54,7 @@ export const DEFAULT_VOLATILITY: MarketVolatility = {
     autoLegRange: 0.9252,
     autoMin: 4.1734,
     autoRange: 1.0,
-    baseRate: 0.9,
+    baseRate: 0.9826034674399771,
 };
 
 export function computeMarketData(

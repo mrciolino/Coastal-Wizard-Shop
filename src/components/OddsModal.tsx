@@ -143,12 +143,12 @@ export default function OddsModal({ onClose, spellOdds, cardsInPack, packPrice, 
                                         </div>
                                     </td>
                                     <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
-                                        <div className="font-mono text-xs text-slate-300">{pDraw > 0 ? (pDraw * 100).toFixed(3) + '%' : '—'}</div>
-                                        <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{pHitInPack > 0 ? (pHitInPack * 100).toFixed(2) + '%' : '—'}</div>
+                                        <div className="font-mono text-xs text-slate-300">{pDraw > 0 ? (pDraw * 100).toFixed(4) + '%' : '—'}</div>
+                                        <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{pHitInPack > 0 ? (pHitInPack * 100).toFixed(3) + '%' : '—'}</div>
                                         <div className="sm:hidden font-mono text-xs text-slate-500 leading-tight">{Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() + ' pks' : '—'}</div>
                                     </td>
                                     <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
-                                        {pHitInPack > 0 ? (pHitInPack * 100).toFixed(2) + '%' : '—'}
+                                        {pHitInPack > 0 ? (pHitInPack * 100).toFixed(3) + '%' : '—'}
                                     </td>
                                     <td className="hidden sm:table-cell px-4 py-2 text-right text-slate-300 font-mono text-xs">
                                         {Number.isFinite(expectedPacks) ? Math.ceil(expectedPacks).toLocaleString() : '—'}

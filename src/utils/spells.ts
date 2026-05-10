@@ -56,16 +56,16 @@ export const spellLevels: SpellLevel[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
 /** Draw-weight per spell level (0–9). Sum should be ~100 for intuitive percentages. */
 export const levelWeights: Record<SpellLevel, number> = {
-    0: 38.26,
-    1: 37.618,
-    2: 12.016,
-    3: 9.403,
-    4: 1.0,
-    5: 1.147,
-    6: 0.1,
-    7: 0.1,
-    8: 0.107,
-    9: 0.05,
+    0: 43.23500614393656,
+    1: 37.369195937951716,
+    2: 8.700581700462225,
+    3: 8.590410263256887,
+    4: 0.887059691327142,
+    5: 0.9214041796614746,
+    6: 0.08440428759742864,
+    7: 0.08411560166974012,
+    8: 0.09104597924034745,
+    9: 0.03677621489648301,
 };
 
 /** @deprecated Use levelWeights. Kept only for legacy type compatibility. */
@@ -80,8 +80,8 @@ export const rarityWeights: Record<SpellRarity, number> = {
 /** Per-card weight multipliers keyed by file stem (without .png).
  *  e.g. 0.5 = half chance, 0.1 = one-tenth chance. */
 const cardWeightOverrides: Record<string, number> = {
-    '9-True Resurrection-Necromancy': 0.5767,
-    '9-Wish-Conjuration1': 0.06525,
+    '9-True Resurrection-Necromancy': 0.5905,
+    '9-Wish-Conjuration1': 0.0884,
 };
 
 const imageModules = import.meta.glob('../data/Spells/**/*.png', {
@@ -172,4 +172,4 @@ export const spellCards = Object.entries(imageModules)
 
 export const currencyPerPack = 1000;
 export const cardsPerPack = 5;
-export const conjurationChance = 0.53;
+export const conjurationChance = 0.50;
