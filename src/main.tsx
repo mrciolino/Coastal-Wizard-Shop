@@ -5,13 +5,13 @@ import Simulation from './Simulation';
 import './styles.css';
 
 function Root() {
-    const [hash, setHash] = useState(() => window.location.hash);
+    const [path, setPath] = useState(() => window.location.pathname);
     useEffect(() => {
-        const onHash = () => setHash(window.location.hash);
-        window.addEventListener('hashchange', onHash);
-        return () => window.removeEventListener('hashchange', onHash);
+        const onPop = () => setPath(window.location.pathname);
+        window.addEventListener('popstate', onPop);
+        return () => window.removeEventListener('popstate', onPop);
     }, []);
-    return hash === '#sim' ? <Simulation /> : <App />;
+    return path === '/sim' ? <Simulation /> : <App />;
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

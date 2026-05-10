@@ -32,6 +32,3 @@ Thumbs.db
 .cache/
 .turbo/
 *.tsbuildinfo
-
-# test files
-Simulation.tsx
