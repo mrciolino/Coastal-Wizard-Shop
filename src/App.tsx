@@ -1,17 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
-import {
-    cardsPerPack,
-    conjurationChance,
-    currencyPerPack,
-    rarityWeights as defaultRarityWeights,
-    spellCards,
-    type SpellRarity,
-} from './utils/spells';
+import { RefreshCw } from 'lucide-react';
+
+import { cardsPerPack, conjurationChance, currencyPerPack, levelWeights as defaultLevelWeights, spellCards, spellLevels, type SpellLevel } from './utils/spells';
 import { generatePack, countBy, hasCard, type GeneratedResult, type SelectedCard } from './utils/pack';
 import { computeSpellOdds } from './utils/odds';
 import { computeMarketData, type MarketEntry } from './utils/pricing';
-import { rarityOrder, schoolOrder, formatRarity } from './utils/format';
+import { schoolOrder, formatRarity, fmtStat, fmtGold } from './utils/format';
 import { panel, field, row, tag, shinyTag, autographedTag, inp, eyebrow, secTitle, statLabel, muted, getRarityTagClass } from './components/tokens';
+
+const LEVEL_LABELS: Record<number, string> = {
+    0: 'Cantrip', 1: 'Level 1', 2: 'Level 2', 3: 'Level 3', 4: 'Level 4',
+    5: 'Level 5', 6: 'Level 6', 7: 'Level 7', 8: 'Level 8', 9: 'Level 9',
+};
 import OddsModal from './components/OddsModal';
 import MarketModal from './components/MarketModal';
 
@@ -29,11 +29,15 @@ type PackSettingConfig = {
     set: (value: number) => void;
 };
 
+// ── Lazy-render thresholds ─────────────────────────────────
+const INITIAL_PACK_RENDER = 30;
+const PACK_LOAD_INCREMENT = 20;
+
 // ── Helpers ──────────────────────────────────────────────
-function toWeightInputs(weights: Record<SpellRarity, number>) {
+function toLevelWeightInputs(weights: Record<SpellLevel, number>) {
     return Object.fromEntries(
-        rarityOrder.map((rarity) => [rarity, String(weights[rarity])]),
-    ) as Record<SpellRarity, string>;
+        spellLevels.map((lvl) => [lvl, String(weights[lvl])]),
+    ) as Record<SpellLevel, string>;
 }
 function toPackSettingInputs(values: Record<PackSettingKey, number>) {
     return Object.fromEntries(
@@ -43,18 +47,18 @@ function toPackSettingInputs(values: Record<PackSettingKey, number>) {
 
 // ── Component ────────────────────────────────────────────
 export default function App() {
-    const [gold, setGold] = useState(150);
+    const [gold, setGold] = useState(10000); 
     const [packPrice, setPackPrice] = useState(currencyPerPack);
     const [cardsInPack, setCardsInPack] = useState(cardsPerPack);
     const [conjurationRate, setConjurationRate] = useState(Math.round(conjurationChance * 100));
     const [packSettingInputs, setPackSettingInputs] = useState<Record<PackSettingKey, string>>(() => toPackSettingInputs({
-        gold: 150,
+        gold: 10000,
         packPrice: currencyPerPack,
         cardsInPack: cardsPerPack,
         conjurationRate: Math.round(conjurationChance * 100),
     }));
-    const [rarityWeights, setRarityWeights] = useState<Record<SpellRarity, number>>(defaultRarityWeights);
-    const [rarityWeightInputs, setRarityWeightInputs] = useState<Record<SpellRarity, string>>(() => toWeightInputs(defaultRarityWeights));
+    const [levelWeights, setLevelWeights] = useState<Record<SpellLevel, number>>(defaultLevelWeights);
+    const [levelWeightInputs, setLevelWeightInputs] = useState<Record<SpellLevel, string>>(() => toLevelWeightInputs(defaultLevelWeights));
     const [packs, setPacks] = useState<GeneratedResult[][]>([]);
     const [lastOpenedAt, setLastOpenedAt] = useState<string | null>(null);
     const [selectedCard, setSelectedCard] = useState<SelectedCard | null>(null);
@@ -63,8 +67,12 @@ export default function App() {
     const [showStatsModal, setShowStatsModal] = useState(false);
     const [showEconomyModal, setShowEconomyModal] = useState(false);
     const [marketData, setMarketData] = useState<MarketEntry[] | null>(null);
+    const [flippedCards, setFlippedCards] = useState<Record<string, boolean>>({});
     const touchStart = useRef<{ x: number; y: number } | null>(null);
     const mobileSettingsRef = useRef<HTMLDivElement | null>(null);
+    const mobileSentinelRef = useRef<HTMLDivElement>(null);
+    const xlSentinelRef = useRef<HTMLDivElement>(null);
+    const [renderedPackCount, setRenderedPackCount] = useState(INITIAL_PACK_RENDER);
 
     const focusMobileSettingsPanel = useCallback(() => {
         window.requestAnimationFrame(() => {
@@ -77,6 +85,12 @@ export default function App() {
         () => packs.map((pack) => pack.filter(hasCard)).filter((pack) => pack.length > 0),
         [packs],
     );
+
+    const toggleFlip = useCallback((packIndex: number, cardIndex: number, e: React.MouseEvent) => {
+        e.stopPropagation();
+        const key = `${packIndex}-${cardIndex}`;
+        setFlippedCards((prev) => ({ ...prev, [key]: !prev[key] }));
+    }, []);
 
     // Navigate within the modal (dPack: pack delta, dCard: card delta)
     const navigate = useCallback((dPack: number, dCard: number) => {
@@ -111,28 +125,63 @@ export default function App() {
         focusMobileSettingsPanel();
     }, [showMobileSettings, focusMobileSettingsPanel]);
 
+    // Lazy-render: load more packs into the DOM as user scrolls
+    useEffect(() => {
+        const sentinels = [mobileSentinelRef.current, xlSentinelRef.current].filter(
+            (el): el is HTMLDivElement => el !== null,
+        );
+        if (sentinels.length === 0 || renderedPackCount >= visiblePacks.length) return;
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries.some((e) => e.isIntersecting)) {
+                    setRenderedPackCount((cur) => cur + PACK_LOAD_INCREMENT);
+                }
+            },
+            { rootMargin: '400px' },
+        );
+        sentinels.forEach((el) => observer.observe(el));
+        return () => observer.disconnect();
+    }, [visiblePacks.length, renderedPackCount]);
+
     const spellOdds = useMemo(
-        () => computeSpellOdds({ conjurationRate, rarityWeights, cardsInPack, packPrice }),
-        [conjurationRate, rarityWeights, cardsInPack, packPrice],
+        () => computeSpellOdds({ conjurationRate, levelWeights, cardsInPack, packPrice }),
+        [conjurationRate, levelWeights, cardsInPack, packPrice],
     );
 
-    useEffect(() => {
-        if (!showEconomyModal) {
-            setMarketData(null);
-            return;
+    const levelDrawPcts = useMemo(() => {
+        const totals: Record<number, number> = {};
+        for (const { spell, pDraw } of spellOdds) {
+            totals[spell.level] = (totals[spell.level] ?? 0) + pDraw;
         }
+        return totals;
+    }, [spellOdds]);
+
+    useEffect(() => {
         setMarketData(null);
         const timer = setTimeout(() => {
             setMarketData(computeMarketData(spellOdds, { packPrice, cardsInPack }));
         }, 400);
         return () => clearTimeout(timer);
-    }, [showEconomyModal, spellOdds, packPrice, cardsInPack]);
+    }, [spellOdds, packPrice, cardsInPack]);
 
-    const packCount = packPrice > 0 ? Math.max(0, Math.floor(gold / packPrice)) : 0;
+    const marketMap = useMemo(
+        () => new Map(marketData?.map((e) => [e.spell.id, e]) ?? []),
+        [marketData],
+    );
+
+    const packCount = packPrice > 0 ? Math.min(100_000, Math.max(0, Math.floor(gold / packPrice))) : 0;
     const totalCards = packCount * cardsInPack;
 
     const stats = useMemo(() => {
         const all = visiblePacks.flat();
+        const goldSpent = visiblePacks.length * packPrice;
+        const totalValue = all.reduce((sum, e) => {
+            const entry = marketMap.get(e.card.id);
+            if (!entry) return sum;
+            if (e.isAutographed && entry.autographPrice != null) return sum + entry.autographPrice;
+            if (e.isShiny) return sum + entry.shinyPrice;
+            return sum + entry.currentPrice;
+        }, 0);
         return {
             totalOpened: all.length,
             averageLevel: all.length ? (all.reduce((s, e) => s + e.card.level, 0) / all.length).toFixed(1) : '0.0',
@@ -141,8 +190,11 @@ export default function App() {
             rarity: countBy(all.map((e) => e.card.rarity)),
             pool: countBy(all.map((e) => e.pool)),
             schools: countBy(all.map((e) => e.card.school)),
+            goldSpent,
+            totalValue,
+            profit: totalValue - goldSpent,
         };
-    }, [visiblePacks]);
+    }, [visiblePacks, packPrice, marketMap]);
 
     const libStats = useMemo(() => {
         const c = spellCards.filter((c) => c.pool === 'conjuration').length;
@@ -172,25 +224,25 @@ export default function App() {
         { label: 'Autographed pulls', value: stats.autographed },
     ] as const;
 
-    const rarityWeightSum = Object.values(rarityWeights).reduce((a, b) => a + b, 0);
+    const levelWeightSum = Object.values(levelWeights).reduce((a, b) => a + b, 0);
 
-    function setWeight(rarity: SpellRarity, value: number) {
-        const nextValue = Math.max(0, Math.trunc(value));
-        setRarityWeights((cur) => ({ ...cur, [rarity]: nextValue }));
-        setRarityWeightInputs((cur) => ({ ...cur, [rarity]: String(nextValue) }));
+    function setLevelWeight(lvl: SpellLevel, value: number) {
+        const nextValue = Math.max(0, value);
+        setLevelWeights((cur) => ({ ...cur, [lvl]: nextValue }));
+        setLevelWeightInputs((cur) => ({ ...cur, [lvl]: String(nextValue) }));
     }
-    function handleWeightInputChange(rarity: SpellRarity, value: string) {
-        setRarityWeightInputs((cur) => ({ ...cur, [rarity]: value }));
+    function handleLevelWeightInputChange(lvl: SpellLevel, value: string) {
+        setLevelWeightInputs((cur) => ({ ...cur, [lvl]: value }));
         if (value === '') return;
 
         const nextValue = Number(value);
         if (Number.isNaN(nextValue)) return;
 
-        setRarityWeights((cur) => ({ ...cur, [rarity]: Math.max(0, Math.trunc(nextValue)) }));
+        setLevelWeights((cur) => ({ ...cur, [lvl]: Math.max(0, nextValue) }));
     }
-    function handleWeightInputBlur(rarity: SpellRarity) {
-        const currentValue = rarityWeightInputs[rarity].trim();
-        setWeight(rarity, currentValue === '' ? 0 : Number(currentValue));
+    function handleLevelWeightInputBlur(lvl: SpellLevel) {
+        const currentValue = levelWeightInputs[lvl].trim();
+        setLevelWeight(lvl, currentValue === '' ? 0 : Number(currentValue));
     }
     function setPackSetting(key: PackSettingKey, value: number) {
         const config = packSettings.find((setting) => setting.key === key);
@@ -223,15 +275,19 @@ export default function App() {
     }
     function openPacks() {
         setPacks(Array.from({ length: packCount }, () =>
-            generatePack(cardsInPack, conjurationRate / 100, rarityWeights)));
+            generatePack(cardsInPack, conjurationRate / 100, levelWeights)));
         setLastOpenedAt(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) + ' at ' + new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }));
         setSelectedCard(null);
+        setFlippedCards({});
+        setRenderedPackCount(INITIAL_PACK_RENDER);
         setShowMobileSettings(false);
     }
     function clearResults() {
         setPacks([]);
         setLastOpenedAt(null);
         setSelectedCard(null);
+        setFlippedCards({});
+        setRenderedPackCount(INITIAL_PACK_RENDER);
         setShowMobileStats(false);
     }
     function handleMobileSettingsClick() {
@@ -288,15 +344,15 @@ export default function App() {
 
             <div className="px-3 py-2 border-b border-slate-700/50 grid gap-2">
                 <div className="flex items-center justify-between gap-2">
-                    <p className={secTitle}>Rarity weights</p>
-                    {rarityWeightSum !== 100 && <span className="text-yellow-400/80 text-[10px] font-medium">Sum ≠ 100 (now {rarityWeightSum})</span>}
+                    <p className={secTitle}>Level weights</p>
+                    {Math.abs(levelWeightSum - 100) > 0.5 && <span className="text-yellow-400/80 text-[10px] font-medium">Sum ≠ 100 (now {levelWeightSum.toFixed(1)})</span>}
                 </div>
                 <div className="grid grid-cols-3 gap-1.5">
-                    {rarityOrder.map((rarity) => (
-                        <label key={rarity} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
-                            <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium capitalize leading-tight">{formatRarity(rarity)}</span>
-                            <input type="number" inputMode="numeric" min={0} step={1} value={rarityWeightInputs[rarity]}
-                                onChange={(e) => handleWeightInputChange(rarity, e.target.value)} onBlur={() => handleWeightInputBlur(rarity)} className={inp} />
+                    {spellLevels.map((lvl) => (
+                        <label key={lvl} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
+                            <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{LEVEL_LABELS[lvl]}</span>
+                            <input type="number" inputMode="decimal" min={0} step={0.1} value={levelWeightInputs[lvl as SpellLevel]}
+                                onChange={(e) => handleLevelWeightInputChange(lvl as SpellLevel, e.target.value)} onBlur={() => handleLevelWeightInputBlur(lvl as SpellLevel)} className={inp} />
                         </label>
                     ))}
                 </div>
@@ -331,7 +387,7 @@ export default function App() {
                 </div>
             ) : (
                 <div className="grid gap-3">
-                    {visiblePacks.map((pack, packIndex) => {
+                    {visiblePacks.slice(0, renderedPackCount).map((pack, packIndex) => {
                         const conjCount = pack.filter((e) => e.pool === 'conjuration').length;
                         return (
                             <article key={`${packIndex}-${pack.length}`}
@@ -346,15 +402,29 @@ export default function App() {
                                         <li
                                             key={`${entry.card.id}-${cardIndex}`}
                                             onClick={() => setSelectedCard({ card: entry.card, pool: entry.pool, isShiny: entry.isShiny, isAutographed: entry.isAutographed, packIndex, cardIndex })}
-                                            className="p-2.5 rounded-xl bg-white/4 border border-slate-700/40 hover:bg-white/8 transition-colors cursor-zoom-in"
+                                            className={`relative overflow-hidden p-2.5 rounded-xl bg-white/4 border border-slate-700/40 hover:bg-white/8 transition-colors cursor-zoom-in${entry.isShiny ? ' shiny-card' : ''}${entry.isAutographed ? ' autographed-card' : ''}`}
                                         >
-                                            <div className={`grid grid-cols-[5rem_minmax(0,1fr)] gap-3 items-center relative sm:grid-cols-[6rem_minmax(0,1fr)]${entry.isShiny ? ' shiny-card' : ''}${entry.isAutographed ? ' autographed-card' : ''}`}>
-                                                <img
-                                                    src={entry.card.imageUrl}
-                                                    alt={entry.card.fileName}
-                                                    loading="lazy"
-                                                    className="w-20 h-28 object-contain rounded-lg border border-slate-700/40 bg-slate-950/80 sm:w-24 sm:h-32"
-                                                />
+                                            <div className="grid grid-cols-[5rem_minmax(0,1fr)] gap-3 items-center sm:grid-cols-[6rem_minmax(0,1fr)]">
+                                                <div className="relative overflow-hidden w-20 h-28 sm:w-24 sm:h-32 shrink-0 group">
+                                                    <img
+                                                        src={flippedCards[`${packIndex}-${cardIndex}`] && entry.card.backImageUrl
+                                                            ? entry.card.backImageUrl
+                                                            : entry.card.imageUrl}
+                                                        alt={entry.card.fileName}
+                                                        loading="lazy"
+                                                        className="w-full h-full object-contain rounded-lg border border-slate-700/40 bg-slate-950/80"
+                                                    />
+                                                    {entry.card.backImageUrl && (
+                                                        <button
+                                                            type="button"
+                                                            aria-label={flippedCards[`${packIndex}-${cardIndex}`] ? 'Show front' : 'Show back'}
+                                                            onClick={(e) => toggleFlip(packIndex, cardIndex, e)}
+                                                            className="absolute top-1 right-1 w-7 h-7 flex items-center justify-center rounded-full bg-black/60 hover:bg-indigo-600 text-white opacity-0 group-hover:opacity-100 transition-all cursor-pointer z-10 shadow-lg"
+                                                        >
+                                                            <RefreshCw size={14} strokeWidth={2.5} />
+                                                        </button>
+                                                    )}
+                                                </div>
                                                 <div className="min-w-0">
                                                     <div className="font-semibold text-sm leading-tight text-slate-100 mb-0.5">{entry.card.displayName}</div>
                                                     <div className="text-xs text-slate-500 mb-2 break-words">{entry.card.fileName}.png</div>
@@ -365,6 +435,21 @@ export default function App() {
                                                         <span className={tag}>Level {entry.card.level}</span>
                                                         <span className={`px-2 py-0.5 rounded-full text-xs border ${getRarityTagClass(entry.card.rarity)}`}>{formatRarity(entry.card.rarity)}</span>
                                                     </div>
+                                                    {(() => {
+                                                        const mEntry = marketMap.get(entry.card.id);
+                                                        if (!mEntry) return null;
+                                                        const price = entry.isShiny ? mEntry.shinyPrice
+                                                            : entry.isAutographed ? (mEntry.autographPrice ?? mEntry.currentPrice)
+                                                            : mEntry.currentPrice;
+                                                        return (
+                                                            <div className="flex items-center justify-start gap-1.5 mt-1.5">
+                                                                <span className="text-xs font-semibold text-amber-400">{price} gp</span>
+                                                                <span className={`text-xs font-medium ${mEntry.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                                    {mEntry.changePct >= 0 ? '+' : ''}{mEntry.changePct.toFixed(1)}%
+                                                                </span>
+                                                            </div>
+                                                        );
+                                                    })()}
                                                 </div>
                                             </div>
                                         </li>
@@ -373,6 +458,11 @@ export default function App() {
                             </article>
                         );
                     })}
+                    {renderedPackCount < visiblePacks.length && (
+                        <p className="text-center text-slate-500 text-xs py-2">
+                            Showing {Math.min(renderedPackCount, visiblePacks.length)} of {visiblePacks.length} packs — scroll for more
+                        </p>
+                    )}
                 </div>
             )}
         </div>
@@ -443,10 +533,11 @@ export default function App() {
             <div className="xl:hidden flex-1 min-h-0 overflow-y-auto px-2 py-3 pb-28">
                 {showMobileSettings && <div className="mb-3">{mobileSettingsPanel}</div>}
                 {cardGrid}
+                <div ref={mobileSentinelRef} className="h-1" />
             </div>
 
             {/* ══ XL THREE-COLUMN LAYOUT ═══════════════════════════════ */}
-            <section className="hidden xl:grid xl:h-full max-w-screen-3xl mx-auto gap-3 xl:grid-cols-[18rem_minmax(0,1fr)_14rem] xl:px-1 xl:py-0">
+            <section className="hidden xl:grid xl:h-full max-w-screen-3xl mx-auto gap-3 xl:grid-cols-[18rem_minmax(0,1fr)_16rem] xl:px-1 xl:py-0">
 
                 {/* ── LEFT RAIL ── */}
                 <aside className="min-w-0 flex flex-col overflow-y-auto py-4">
@@ -507,15 +598,15 @@ export default function App() {
 
                         <div className="px-4 py-3 border-b border-slate-700/50 grid gap-2.5">
                             <div className="flex items-center justify-between gap-2">
-                                <p className={secTitle}>Rarity weights</p>
-                                {rarityWeightSum !== 100 && <span className="text-yellow-400/80 text-xs font-medium">Sum ≠ 100 (now {rarityWeightSum})</span>}
+                                <p className={secTitle}>Level weights</p>
+                                {Math.abs(levelWeightSum - 100) > 0.5 && <span className="text-yellow-400/80 text-xs font-medium">Sum ≠ 100 (now {levelWeightSum.toFixed(1)})</span>}
                             </div>
                             <div className="grid grid-cols-2 gap-2">
-                                {rarityOrder.map((rarity) => (
-                                    <label key={rarity} className={field}>
-                                        <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium capitalize">{formatRarity(rarity)}</span>
-                                        <input type="number" min={0} step={1} value={rarityWeightInputs[rarity]}
-                                            onChange={(e) => handleWeightInputChange(rarity, e.target.value)} onBlur={() => handleWeightInputBlur(rarity)} className={inp} />
+                                {spellLevels.map((lvl) => (
+                                    <label key={lvl} className={field}>
+                                        <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{LEVEL_LABELS[lvl]}</span>
+                                        <input type="number" inputMode="decimal" min={0} step={0.1} value={levelWeightInputs[lvl as SpellLevel]}
+                                            onChange={(e) => handleLevelWeightInputChange(lvl as SpellLevel, e.target.value)} onBlur={() => handleLevelWeightInputBlur(lvl as SpellLevel)} className={inp} />
                                     </label>
                                 ))}
                             </div>
@@ -540,6 +631,7 @@ export default function App() {
                     <div className="grid gap-3">
                         {cardGrid}
                     </div>
+                    <div ref={xlSentinelRef} className="h-1" />
                 </section>
 
                 {/* ── RIGHT RAIL ── */}
@@ -551,21 +643,32 @@ export default function App() {
                             {sessionStats.map(({ label, value }) => (
                                 <div key={label} className="flex justify-between items-baseline gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-slate-700/50">
                                     <span className={statLabel + ' shrink-0'}>{label}</span>
-                                    <strong className="text-sm font-bold text-slate-100 text-right leading-none">{value}</strong>
+                                    <strong className="text-sm font-bold text-slate-100 text-right leading-none">{fmtStat(value as number)}</strong>
                                 </div>
                             ))}
+                            {marketData != null && stats.totalOpened > 0 && (
+                                <div className="flex justify-between items-baseline gap-2 px-3 py-1.5 rounded-lg bg-white/5 border border-slate-700/50">
+                                    <span className={statLabel + ' shrink-0'}>Gold profit</span>
+                                    <strong className={`text-sm font-bold text-right leading-none ${stats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                        {stats.profit >= 0 ? '+' : ''}{fmtGold(Math.abs(stats.profit))}
+                                    </strong>
+                                </div>
+                            )}
                         </div>
                     </section>
 
                     <section className={`${panel} p-4`}>
-                        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-2.5">Rarity</h2>
+                        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-2.5">By Level</h2>
                         <ul className="list-none p-0 m-0 grid gap-1.5">
-                            {rarityOrder.map((rarity) => (
-                                <li key={rarity} className={row}>
-                                    <span className="text-slate-300 capitalize">{formatRarity(rarity)}</span>
-                                    <strong className="text-slate-100">{stats.rarity[rarity] ?? 0}</strong>
-                                </li>
-                            ))}
+                            {spellLevels.map((lvl) => {
+                                const levelCount = visiblePacks.flat().filter((e) => e.card.level === lvl).length;
+                                return (
+                                    <li key={lvl} className={row}>
+                                        <span className="text-slate-300">{LEVEL_LABELS[lvl]}</span>
+                                        <strong className="text-slate-100">{fmtStat(levelCount)}</strong>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     </section>
 
@@ -575,7 +678,7 @@ export default function App() {
                             {schoolOrder.map((school) => (
                                 <li key={school} className={row}>
                                     <span className="text-slate-300">{school}</span>
-                                    <strong className="text-slate-100">{stats.schools[school] ?? 0}</strong>
+                                    <strong className="text-slate-100">{fmtStat(stats.schools[school] ?? 0)}</strong>
                                 </li>
                             ))}
                         </ul>
@@ -594,25 +697,36 @@ export default function App() {
                                 {sessionStats.map(({ label, value }) => (
                                     <div key={label} className="flex justify-between gap-2 text-xs rounded-lg bg-white/5 border border-slate-700/50 px-3 py-2">
                                         <span className="text-slate-300">{label}</span>
-                                        <strong className="text-slate-100">{value}</strong>
+                                        <strong className="text-slate-100">{fmtStat(value as number)}</strong>
                                     </div>
                                 ))}
+                                {marketData != null && stats.totalOpened > 0 && (
+                                    <div className="flex justify-between gap-2 text-xs rounded-lg bg-white/5 border border-slate-700/50 px-3 py-2">
+                                        <span className="text-slate-300">Gold profit</span>
+                                        <strong className={stats.profit >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+                                            {stats.profit >= 0 ? '+' : ''}{fmtGold(Math.abs(stats.profit))}
+                                        </strong>
+                                    </div>
+                                )}
                             </section>
                             <section className="grid gap-2">
-                                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-0">Rarity</h2>
-                                {rarityOrder.map((rarity) => (
-                                    <div key={rarity} className="flex justify-between gap-2 text-xs rounded-lg bg-white/5 border border-slate-700/50 px-3 py-2">
-                                        <span className="text-slate-300 capitalize">{formatRarity(rarity)}</span>
-                                        <strong className="text-slate-100">{stats.rarity[rarity] ?? 0}</strong>
-                                    </div>
-                                ))}
+                                <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-0">By Level</h2>
+                                {spellLevels.map((lvl) => {
+                                    const levelCount = visiblePacks.flat().filter((e) => e.card.level === lvl).length;
+                                    return (
+                                        <div key={lvl} className="flex justify-between gap-2 text-xs rounded-lg bg-white/5 border border-slate-700/50 px-3 py-2">
+                                            <span className="text-slate-300">{LEVEL_LABELS[lvl]}</span>
+                                            <strong className="text-slate-100">{fmtStat(levelCount)}</strong>
+                                        </div>
+                                    );
+                                })}
                             </section>
                             <section className="grid gap-2">
                                 <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mt-0 mb-0">Schools</h2>
                                 {schoolOrder.map((school) => (
                                     <div key={school} className="flex justify-between gap-2 text-xs rounded-lg bg-white/5 border border-slate-700/50 px-3 py-2">
                                         <span className="text-slate-300">{school}</span>
-                                        <strong className="text-slate-100">{stats.schools[school] ?? 0}</strong>
+                                        <strong className="text-slate-100">{fmtStat(stats.schools[school] ?? 0)}</strong>
                                     </div>
                                 ))}
                             </section>
@@ -630,7 +744,7 @@ export default function App() {
                             ].map(({ label, value }) => (
                                 <div key={label} className="rounded-xl bg-white/5 border border-slate-700/50 px-2 py-2 text-center">
                                     <div className="text-[10px] uppercase tracking-wider text-slate-400">{label}</div>
-                                    <div className="text-sm font-semibold text-slate-50">{value}</div>
+                                    <div className="text-sm font-semibold text-slate-50">{fmtStat(value)}</div>
                                 </div>
                             ))}
                         </div>
@@ -739,10 +853,22 @@ export default function App() {
                                             <div className="autographed-card absolute inset-0 pointer-events-none" />
                                         )}
                                         <img
-                                            src={selectedCard.card.imageUrl}
+                                            src={flippedCards[`${selectedCard.packIndex}-${selectedCard.cardIndex}`] && selectedCard.card.backImageUrl
+                                                ? selectedCard.card.backImageUrl
+                                                : selectedCard.card.imageUrl}
                                             alt={selectedCard.card.displayName}
                                             className="object-contain max-w-full max-h-full"
                                         />
+                                        {selectedCard.card.backImageUrl && (
+                                            <button
+                                                type="button"
+                                                aria-label={flippedCards[`${selectedCard.packIndex}-${selectedCard.cardIndex}`] ? 'Show front' : 'Show back'}
+                                                onClick={(e) => toggleFlip(selectedCard.packIndex, selectedCard.cardIndex, e)}
+                                                className="absolute top-2 right-2 w-10 h-10 flex items-center justify-center rounded-full bg-black/60 hover:bg-indigo-600 text-white opacity-50 hover:opacity-100 transition-all cursor-pointer z-10 shadow-lg"
+                                            >
+                                                <RefreshCw size={20} strokeWidth={2} />
+                                            </button>
+                                        )}
                                     </div>
 
                                     {/* Next card button — right column */}
@@ -802,6 +928,27 @@ export default function App() {
                                         </span>
                                     </div>
 
+                                    {/* Market price */}
+                                    {(() => {
+                                        const mEntry = marketMap.get(selectedCard.card.id);
+                                        if (!mEntry) return null;
+                                        const price = selectedCard.isShiny ? mEntry.shinyPrice
+                                            : selectedCard.isAutographed ? (mEntry.autographPrice ?? mEntry.currentPrice)
+                                            : mEntry.currentPrice;
+                                        return (
+                                            <div className="rounded-xl p-3 bg-white/5 border border-slate-700/50">
+                                                <p className={`${secTitle} mb-1.5`}>Market price</p>
+                                                <div className="flex items-baseline gap-2">
+                                                    <span className="text-lg font-bold text-slate-100">{price} gp</span>
+                                                    <span className={`text-sm font-medium ${mEntry.changePct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                                        {mEntry.changePct >= 0 ? '+' : ''}{mEntry.changePct.toFixed(1)}%
+                                                    </span>
+                                                    <span className="text-xs text-slate-500 ml-auto">vs yesterday</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })()}
+
                                     {/* Pack context */}
                                     <div className="grid gap-1 rounded-xl p-3 bg-white/5 border border-slate-700/50">
                                         <p className={`${secTitle} mb-1`}>Pack context</p>
@@ -843,6 +990,23 @@ export default function App() {
                                         >
                                             Next card ›
                                         </button>
+                                        {/* Pack navigation buttons */}
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(-1, 0)}
+                                            disabled={!canPrevPack}
+                                            className="rounded-xl py-2.5 bg-white/5 border border-slate-700/40 text-slate-400 text-sm font-medium hover:bg-white/10 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            ↑ Prev pack
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => navigate(1, 0)}
+                                            disabled={!canNextPack}
+                                            className="rounded-xl py-2.5 bg-white/5 border border-slate-700/40 text-slate-400 text-sm font-medium hover:bg-white/10 hover:text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
+                                        >
+                                            Next pack ↓
+                                        </button>
                                     </div>
                                 </div>
                             </div>
@@ -853,12 +1017,12 @@ export default function App() {
 
             {/* ══ SPELL ODDS MODAL ═══════════════════════════════════ */}
             {showStatsModal && (
-                <OddsModal onClose={() => setShowStatsModal(false)} spellOdds={spellOdds} />
+                <OddsModal onClose={() => setShowStatsModal(false)} spellOdds={spellOdds} cardsInPack={cardsInPack} packPrice={packPrice} conjurationRate={conjurationRate} levelWeights={levelWeights} />
             )}
 
             {/* ══ ECONOMY MODAL ══════════════════════════════════════ */}
             {showEconomyModal && (
-                <MarketModal onClose={() => setShowEconomyModal(false)} marketData={marketData} />
+                <MarketModal onClose={() => setShowEconomyModal(false)} marketData={marketData} packPrice={packPrice} cardsInPack={cardsInPack} conjurationRate={conjurationRate} levelDrawPcts={levelDrawPcts} />
             )}
         </main>
     );

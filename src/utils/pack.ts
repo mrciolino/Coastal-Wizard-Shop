@@ -1,4 +1,4 @@
-import { spellCards, type SpellCard, type SpellPool, type SpellRarity } from './spells';
+import { spellCards, type SpellCard, type SpellPool, type SpellLevel } from './spells';
 import { weightedPick } from './roll';
 
 export type GeneratedResult = {
@@ -17,7 +17,7 @@ export type SelectedCard = {
     cardIndex: number;
 };
 
-export function generatePack(n: number, conjRate: number, weights: Record<SpellRarity, number>): GeneratedResult[] {
+export function generatePack(n: number, conjRate: number, weights: Record<SpellLevel, number>): GeneratedResult[] {
     const conj = spellCards.filter((c) => c.pool === 'conjuration');
     const staple = spellCards.filter((c) => c.pool === 'staple');
     return Array.from({ length: n }, () => {
@@ -27,9 +27,9 @@ export function generatePack(n: number, conjRate: number, weights: Record<SpellR
         if (cards.length === 0) {
             throw new Error('No spell cards are available to generate a pack.');
         }
-        const card = weightedPick(cards, (e) => weights[e.rarity] ?? 0);
-        const isAutographed = (card.rarity === 'rare' || card.rarity === 'legendary') && Math.random() < 0.05;
-        return { card, pool, isShiny: Math.random() < 0.10, isAutographed };
+        const card = weightedPick(cards, (e) => weights[e.level as SpellLevel] ?? 0);
+        const isAutographed = (card.rarity === 'rare' || card.rarity === 'legendary') && Math.random() < 0.04278;
+        return { card, pool, isShiny: Math.random() < 0.02, isAutographed };
     });
 }
 

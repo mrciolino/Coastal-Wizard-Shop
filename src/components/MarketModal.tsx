@@ -1,18 +1,28 @@
 import { useState } from 'react';
 import type { MarketEntry } from '../utils/pricing';
 import { formatRarity } from '../utils/format';
+import { spellLevels } from '../utils/spells';
 import { getRarityTagClass, inp, panel, tag } from './tokens';
 import Sparkline from './Sparkline';
 
-type SortKey = 'name' | 'price' | 'change';
+const LEVEL_LABELS: Record<number, string> = {
+    0: 'Cantrip', 1: 'L1', 2: 'L2', 3: 'L3', 4: 'L4',
+    5: 'L5', 6: 'L6', 7: 'L7', 8: 'L8', 9: 'L9',
+};
+
+type SortKey = 'name' | 'price';
 type SortDir = 'asc' | 'desc';
 
 type MarketModalProps = {
     onClose: () => void;
     marketData: MarketEntry[] | null;
+    packPrice: number;
+    cardsInPack: number;
+    conjurationRate: number;
+    levelDrawPcts: Record<number, number>;
 };
 
-export default function MarketModal({ onClose, marketData }: MarketModalProps) {
+export default function MarketModal({ onClose, marketData, packPrice, cardsInPack, conjurationRate, levelDrawPcts }: MarketModalProps) {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('price');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -40,8 +50,7 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
             .sort((a, b) => {
                 const dir = sortDir === 'asc' ? 1 : -1;
                 if (sortKey === 'name') return dir * a.spell.displayName.localeCompare(b.spell.displayName);
-                if (sortKey === 'price') return dir * (a.currentPrice - b.currentPrice);
-                return dir * (a.changePct - b.changePct);
+                return dir * (a.currentPrice - b.currentPrice);
             })
         : [];
 
@@ -63,7 +72,17 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
                 <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
                     <div>
                         <h2 id="economy-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">📈 Marketplace</h2>
-                        <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Simulated market prices based on pack pull odds · refreshes each open</p>
+                        <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Simulated fair-value prices based on pull odds · refreshes each open</p>
+                        <div className="hidden sm:flex flex-wrap gap-1 mt-1">
+                            <span className={tag}>{packPrice} gp/pack</span>
+                            <span className={tag}>{cardsInPack} cards/pack</span>
+                            <span className={tag}>{conjurationRate}% conj · {100 - conjurationRate}% staple</span>
+                            {spellLevels.map((lvl) => levelDrawPcts[lvl] != null && levelDrawPcts[lvl]! > 0 ? (
+                                <span key={lvl} className="px-2 py-0.5 rounded-full text-xs border border-slate-600/40 text-slate-300 bg-slate-800/40">
+                                    {LEVEL_LABELS[lvl]} {(levelDrawPcts[lvl]! * 100).toFixed(1)}%
+                                </span>
+                            ) : null)}
+                        </div>
                     </div>
                     <button
                         type="button"
@@ -94,14 +113,14 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
                                 aria-label="Filter market"
                             />
                             <span className="text-xs text-slate-500 shrink-0">Sort:</span>
-                            {(['name', 'price', 'change'] as const).map((key) => (
+                            {(['name', 'price'] as const).map((key) => (
                                 <button
                                     key={key}
                                     type="button"
                                     onClick={() => handleSort(key)}
                                     className={`shrink-0 rounded-lg px-2 py-1 text-xs font-medium border transition-all ${sortKey === key ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/5 text-slate-400 border-slate-700/50 hover:bg-white/10'}`}
                                 >
-                                    {key === 'name' ? 'Name' : key === 'price' ? 'Price' : 'Change'}
+                                    {key === 'name' ? 'Name' : 'Price'}
                                     {sortKey === key ? (sortDir === 'desc' ? ' ▼' : ' ▲') : ''}
                                 </button>
                             ))}
@@ -112,18 +131,18 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
                             <table className="w-full border-collapse">
                                 <thead className="sticky top-0 bg-slate-900 z-10">
                                     <tr>
-                                        <th className="text-left px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
-                                        <th className="text-right px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Price</th>
+                                        <th className="text-left px-1.5 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Spell</th>
+                                        <th className="text-right px-1.5 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Price</th>
                                         <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✦ Shiny</th>
                                         <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">✍ Autograph</th>
                                         <th className="hidden sm:table-cell text-right px-4 py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">24h</th>
-                                        <th className="px-2 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Trend</th>
+                                        <th className="w-16 sm:w-24 px-1.5 sm:px-4 py-1.5 sm:py-2.5 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-700/60">Trend</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {sortedRows.map(({ spell, currentPrice, change, changePct, history, shinyPrice, autographPrice }) => (
                                         <tr key={spell.id} className="border-b border-slate-700/30 hover:bg-white/4 transition-colors">
-                                            <td className="px-2 sm:px-4 py-1 sm:py-2">
+                                            <td className="px-1.5 sm:px-4 py-1 sm:py-2">
                                                 <div className="flex items-center gap-1 flex-wrap">
                                                     <span className="text-slate-100 font-medium text-xs sm:text-sm whitespace-nowrap">{spell.displayName}</span>
                                                     <span className={`px-1.5 py-0.5 rounded-full text-xs border ${getRarityTagClass(spell.rarity)}`}>{formatRarity(spell.rarity)}</span>
@@ -135,9 +154,9 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
                                                     {autographPrice != null && <span className="font-mono text-xs text-amber-400">✍ {autographPrice.toLocaleString()}gp</span>}
                                                 </div>
                                             </td>
-                                            <td className="px-2 sm:px-4 py-1 sm:py-2 text-right align-top">
-                                                <div className="font-mono text-xs sm:text-sm text-slate-100 font-semibold whitespace-nowrap">{currentPrice.toLocaleString()} gp</div>
-                                                <div className={`font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                            <td className="px-1.5 sm:px-4 py-1 sm:py-2 text-right align-middle">
+                                                <div className="font-mono text-xs sm:text-sm text-slate-100 font-semibold whitespace-nowrap">{currentPrice.toLocaleString()}<span className="hidden sm:inline"> gp</span></div>
+                                                <div className={`sm:hidden font-mono text-xs whitespace-nowrap ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                                     {change >= 0 ? '+' : ''}{changePct.toFixed(1)}%
                                                 </div>
                                             </td>
@@ -154,7 +173,7 @@ export default function MarketModal({ onClose, marketData }: MarketModalProps) {
                                                 <div>{change >= 0 ? '+' : ''}{change.toLocaleString()} gp</div>
                                                 <div className="opacity-70">{change >= 0 ? '+' : ''}{changePct.toFixed(1)}%</div>
                                             </td>
-                                            <td className="px-2 sm:px-4 py-1 sm:py-2">
+                                            <td className="px-1.5 sm:px-4 py-1 sm:py-2 w-16 sm:w-24">
                                                 <Sparkline prices={history} up={change >= 0} />
                                             </td>
                                         </tr>
