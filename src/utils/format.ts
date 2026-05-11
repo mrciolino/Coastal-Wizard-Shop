@@ -38,8 +38,10 @@ export function fmtStat(n: number): string {
     return String(n);
 }
 
-/** Format a gold value: comma-separated below 10 000, "k" notation at 10 000+. */
+/** Format a gold value: compact suffix notation (k / M) for large values. */
 export function fmtGold(n: number): string {
-    if (Math.abs(n) >= 10000) return `${(n / 1000).toFixed(1)} k`;
+    const abs = Math.abs(n);
+    if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(2).replace(/\.?0+$/, '')}M`;
+    if (abs >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, '')}k`;
     return Math.round(n).toLocaleString();
 }
