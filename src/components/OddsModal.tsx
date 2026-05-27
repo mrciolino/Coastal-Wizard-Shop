@@ -1,31 +1,59 @@
-import { useState } from 'react';
-import type { SpellOdds } from '../utils/odds';
+import { useMemo, useState } from 'react';
+import { computeSpellOdds } from '../utils/odds';
 import type { SpellLevel } from '../utils/spells';
 import { spellLevels } from '../utils/spells';
 import { formatRarity } from '../utils/format';
 import { getRarityTagClass, inp, panel, tag } from './tokens';
+import { STARTER_PACK, ADVANCED_PACK, STARTER_LEVEL_WEIGHTS, ADVANCED_LEVEL_WEIGHTS } from '../utils/constants';
 
 const LEVEL_LABELS: Record<number, string> = {
     0: 'Cantrip', 1: 'L1', 2: 'L2', 3: 'L3', 4: 'L4',
     5: 'L5', 6: 'L6', 7: 'L7', 8: 'L8', 9: 'L9',
 };
 
+const MODAL_PACKS = [
+    {
+        id: 'starter',
+        name: 'Starter',
+        packPrice: STARTER_PACK.packPrice,
+        cardsInPack: STARTER_PACK.cardsInPack,
+        conjurationRate: STARTER_PACK.conjurationRate,
+        levelWeights: STARTER_LEVEL_WEIGHTS,
+    },
+    {
+        id: 'advanced',
+        name: 'Advanced',
+        packPrice: ADVANCED_PACK.packPrice,
+        cardsInPack: ADVANCED_PACK.cardsInPack,
+        conjurationRate: ADVANCED_PACK.conjurationRate,
+        levelWeights: ADVANCED_LEVEL_WEIGHTS,
+    },
+] as const;
+
 type OddsModalProps = {
     onClose: () => void;
-    spellOdds: SpellOdds[];
-    cardsInPack: number;
-    packPrice: number;
-    conjurationRate: number;
-    levelWeights: Record<SpellLevel, number>;
+    initialPackId?: string;
 };
 
 type SortKey = 'name' | 'chance';
 type SortDir = 'asc' | 'desc';
 
-export default function OddsModal({ onClose, spellOdds, cardsInPack, packPrice, conjurationRate, levelWeights: _levelWeights }: OddsModalProps) {
+export default function OddsModal({ onClose, initialPackId = 'starter' }: OddsModalProps) {
+    const [packId, setPackId] = useState<string>(initialPackId);
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('chance');
     const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+    const localPack = MODAL_PACKS.find((p) => p.id === packId) ?? MODAL_PACKS[0];
+    const { packPrice, cardsInPack, conjurationRate, levelWeights } = localPack;
+
+    const spellOdds = useMemo(
+        () => computeSpellOdds({ conjurationRate, levelWeights: levelWeights as Record<SpellLevel, number>, cardsInPack, packPrice }),
+        [packId], // eslint-disable-line react-hooks/exhaustive-deps
+    );
+
+    // Only show spells that can actually be rolled with the current pack's weights
+    const rollableOdds = spellOdds.filter(({ pDraw }) => pDraw > 0);
 
     function handleSort(key: SortKey) {
         if (sortKey === key) {
@@ -37,11 +65,11 @@ export default function OddsModal({ onClose, spellOdds, cardsInPack, packPrice, 
     }
 
     const levelDrawPcts = spellLevels.reduce<Record<number, number>>((acc, lvl) => {
-        acc[lvl] = spellOdds.reduce((s, { spell, pDraw }) => s + (spell.level === lvl ? pDraw : 0), 0);
+        acc[lvl] = rollableOdds.reduce((s, { spell, pDraw }) => s + (spell.level === lvl ? pDraw : 0), 0);
         return acc;
     }, {});
 
-    const filtered = spellOdds
+    const filtered = rollableOdds
         .filter(({ spell }) => {
             const q = search.trim().toLowerCase();
             if (!q) return true;
@@ -87,14 +115,29 @@ export default function OddsModal({ onClose, spellOdds, cardsInPack, packPrice, 
                             ) : null)}
                         </div>
                     </div>
-                    <button
-                        type="button"
-                        onClick={onClose}
-                        aria-label="Close"
-                        className="w-8 h-8 shrink-0 rounded-xl grid place-items-center bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60 text-lg p-0 transition-all hover:bg-slate-700/60 cursor-pointer"
-                    >
-                        ×
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                        {/* Pack type toggle */}
+                        <div className="flex rounded-xl overflow-hidden border border-slate-700/60">
+                            {MODAL_PACKS.map((p) => (
+                                <button
+                                    key={p.id}
+                                    type="button"
+                                    onClick={() => setPackId(p.id)}
+                                    className={`px-3 py-1 text-xs font-semibold transition-all cursor-pointer ${packId === p.id ? 'bg-indigo-500/30 text-indigo-200' : 'bg-slate-800/60 text-slate-400 hover:bg-slate-700/60 hover:text-slate-200'}`}
+                                >
+                                    {p.name}
+                                </button>
+                            ))}
+                        </div>
+                        <button
+                            type="button"
+                            onClick={onClose}
+                            aria-label="Close"
+                            className="w-8 h-8 rounded-xl grid place-items-center bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/60 text-lg p-0 transition-all hover:bg-slate-700/60 cursor-pointer"
+                        >
+                            ×
+                        </button>
+                    </div>
                 </div>
 
                 {/* Search + sort */}

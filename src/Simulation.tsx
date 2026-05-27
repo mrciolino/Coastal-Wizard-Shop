@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from 'react';
-import { spellCards, levelWeights as defaultLevelWeights, currencyPerPack, cardsPerPack, conjurationChance, type SpellLevel, spellLevels } from './utils/spells';
-import { DEFAULT_VOLATILITY } from './utils/pricing';
+import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { Lock, Unlock } from 'lucide-react';
+import { spellCards, type SpellLevel, spellLevels } from './utils/spells';
+import { STARTER_PACK, ADVANCED_PACK, STARTER_LEVEL_WEIGHTS, ADVANCED_LEVEL_WEIGHTS, CARD_WEIGHT_OVERRIDES } from './utils/constants';
 import { isAutographable } from './utils/format';
 import { panel, inp, eyebrow, secTitle } from './components/tokens';
 
@@ -17,6 +18,11 @@ type PriceTarget = { label: string; rarity: string; price: number; filter: (file
 
 const WISH_FILE = '9-Wish-Conjuration1';
 const TRUEREZ_FILE = '9-True Resurrection-Necromancy';
+
+const PACK_PRESETS_SIM = [
+    { id: 'starter' as const, name: 'Starter', packPrice: STARTER_PACK.packPrice, cardsInPack: STARTER_PACK.cardsInPack, conjurationRate: STARTER_PACK.conjurationRate, levelWeights: STARTER_LEVEL_WEIGHTS },
+    { id: 'advanced' as const, name: 'Advanced', packPrice: ADVANCED_PACK.packPrice, cardsInPack: ADVANCED_PACK.cardsInPack, conjurationRate: ADVANCED_PACK.conjurationRate, levelWeights: ADVANCED_LEVEL_WEIGHTS },
+] as const;
 
 const PRICE_TARGETS: PriceTarget[] = [
     { label: 'Cantrip (L0)', rarity: 'common', price: 100, filter: (_f, l) => l === 0 },
@@ -60,20 +66,17 @@ type SimInputs = {
 
 function defaultInputs(): SimInputs {
     return {
-        packPrice: currencyPerPack,
-        cardsInPack: cardsPerPack,
-        conjurationRate: Math.round(conjurationChance * 100),
-        levelWeights: { ...defaultLevelWeights },
-        baseRate: DEFAULT_VOLATILITY.baseRate,
-        shinyChance: 0.093668422968291,
-        autographChance: 0.023703215398704562,
-        shinyMultiplierAvg: 1.1049218858790801,
-        autoMultiplierAvg: 1.0919201993422551,
-        autoLegMultiplierAvg: 2.2202536900734455,
-        cardWeightOverrides: {
-            '9-True Resurrection-Necromancy': 0.5905,
-            '9-Wish-Conjuration1': 0.0884,
-        },
+        packPrice: ADVANCED_PACK.packPrice,
+        cardsInPack: ADVANCED_PACK.cardsInPack,
+        conjurationRate: ADVANCED_PACK.conjurationRate,
+        levelWeights: { ...ADVANCED_LEVEL_WEIGHTS },
+        baseRate: ADVANCED_PACK.baseRate,
+        shinyChance: ADVANCED_PACK.shinyChance,
+        autographChance: ADVANCED_PACK.autographChance,
+        shinyMultiplierAvg: ADVANCED_PACK.shinyMultiplierAvg,
+        autoMultiplierAvg: ADVANCED_PACK.autoMultiplierAvg,
+        autoLegMultiplierAvg: ADVANCED_PACK.autoLegMultiplierAvg,
+        cardWeightOverrides: { ...CARD_WEIGHT_OVERRIDES },
     };
 }
 
@@ -84,6 +87,7 @@ type TargetEval = {
     avgFair: number;
     avgWithVariants: number;
     cardCount: number;
+    excluded: boolean; // true when all cards in this group have pDraw = 0 (level not in pack)
     pass: boolean;
     deltaPct: number;
 };
@@ -93,6 +97,7 @@ type EvalResult = {
     packEV: number;
     rawPackEV: number;
     score: number;
+    activeTargetCount: number; // non-excluded targets + 1 (evPass)
     passAll: boolean;
     evPass: boolean;  // variant EV within ±10% of raw EV
 };
@@ -119,7 +124,12 @@ function evaluateInputs(inputs: SimInputs): EvalResult {
     const conjWeight = conjCards.reduce((s, c) => s + (inputs.levelWeights[c.level as SpellLevel] ?? 0) * c.weightMultiplier, 0);
     const stapleWeight = stapleCards.reduce((s, c) => s + (inputs.levelWeights[c.level as SpellLevel] ?? 0) * c.weightMultiplier, 0);
 
-    const avgPDraw = cards.length > 0 ? 1 / cards.length : 1;
+    // avgPDraw must be computed only over drawable cards (pDraw > 0), otherwise cards
+    // excluded by a zero level-weight deflate fair values and rawPackEV falls below packPrice.
+    const drawableCount = cards.filter(
+        (c) => (inputs.levelWeights[c.level as SpellLevel] ?? 0) * c.weightMultiplier > 0,
+    ).length;
+    const avgPDraw = drawableCount > 0 ? 1 / drawableCount : 1;
 
     type Row = { card: typeof cards[number]; pDraw: number; fair: number; fairBase: number; fairWithVariants: number };
     const rows: Row[] = cards.map((card) => {
@@ -139,9 +149,10 @@ function evaluateInputs(inputs: SimInputs): EvalResult {
     // Per-target averages
     const targets: TargetEval[] = PRICE_TARGETS.map((t) => {
         const group = rows.filter((r) => t.filter(r.card.fileName, r.card.level));
+        const excluded = group.length === 0 || group.every((r) => r.pDraw === 0);
         const avgFair = group.length > 0 ? group.reduce((s, r) => s + r.fairBase, 0) / group.length : 0;
         const avgWithVariants = group.length > 0 ? group.reduce((s, r) => s + r.fairWithVariants, 0) / group.length : 0;
-        const deltaPct = (avgFair - t.price) / t.price;
+        const deltaPct = excluded ? 0 : (avgFair - t.price) / t.price;
         return {
             label: t.label,
             targetRarity: t.rarity,
@@ -149,7 +160,8 @@ function evaluateInputs(inputs: SimInputs): EvalResult {
             avgFair,
             avgWithVariants,
             cardCount: group.length,
-            pass: Math.abs(deltaPct) <= TOLERANCE,
+            excluded,
+            pass: excluded || Math.abs(deltaPct) <= TOLERANCE,
             deltaPct,
         };
     });
@@ -157,8 +169,9 @@ function evaluateInputs(inputs: SimInputs): EvalResult {
     const rawPackEV = rows.reduce((s, r) => s + r.pDraw * r.fair, 0) * inputs.cardsInPack;
     const packEV = rows.reduce((s, r) => s + r.pDraw * r.fairBase * variantUplift(r.card.rarity, inputs), 0) * inputs.cardsInPack;
     const evPass = rawPackEV > 0 && Math.abs(packEV / rawPackEV - 1) <= TOLERANCE;
-    const score = targets.filter((t) => t.pass).length + (evPass ? 1 : 0);
-    return { targets, packEV, rawPackEV, score, passAll: score === PRICE_TARGETS.length + 1, evPass };
+    const activeTargetCount = targets.filter((t) => !t.excluded).length + 1;
+    const score = targets.filter((t) => !t.excluded && t.pass).length + (evPass ? 1 : 0);
+    return { targets, packEV, rawPackEV, score, activeTargetCount, passAll: score === activeTargetCount, evPass };
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -177,18 +190,18 @@ function jitter(base: number, lo: number, hi: number, spread = 0.25): number {
     return Math.min(hi, Math.max(lo, v));
 }
 
-function randomSearch(base: SimInputs, iterations: number, deadline: number, spread = 0.25): SearchResult[] {
+function randomSearch(base: SimInputs, iterations: number, deadline: number, spread = 0.25, locked: Partial<Record<SpellLevel, boolean>> = {}, conjRange: [number, number] = [40, 90], baseRange: [number, number] = [0.1, 2]): SearchResult[] {
     const results: SearchResult[] = [];
     for (let i = 0; i < iterations; i++) {
         if (Date.now() > deadline) break;
         const candidate: SimInputs = {
             ...base,
-            conjurationRate: Math.round(jitter(base.conjurationRate, 40, 90, spread)),
-            baseRate: jitter(base.baseRate, 0.1, 2, spread),
+            conjurationRate: Math.round(jitter(base.conjurationRate, conjRange[0], conjRange[1], spread)),
+            baseRate: jitter(base.baseRate, baseRange[0], baseRange[1], spread),
             levelWeights: Object.fromEntries(
                 (Object.keys(base.levelWeights) as unknown as SpellLevel[]).map((k) => [
                     k,
-                    jitter(base.levelWeights[k], 0.001, Infinity, spread),
+                    locked[k] ? base.levelWeights[k] : jitter(base.levelWeights[k], 0.001, Infinity, spread),
                 ])
             ) as Record<SpellLevel, number>,
             shinyChance: jitter(base.shinyChance, 0.02, 0.20, spread),
@@ -202,11 +215,15 @@ function randomSearch(base: SimInputs, iterations: number, deadline: number, spr
                 [TRUEREZ_FILE]: jitter(base.cardWeightOverrides[TRUEREZ_FILE] ?? 1, 0.001, 5, spread),
             },
         };
-        // Normalize weights to sum to 100 (preserves ratios)
-        const sum = Object.values(candidate.levelWeights).reduce((a, b) => a + b, 0);
-        if (sum > 0) {
-            for (const k of Object.keys(candidate.levelWeights) as unknown as SpellLevel[]) {
-                candidate.levelWeights[k] = (candidate.levelWeights[k] / sum) * 100;
+        // Normalize: locked weights stay fixed; unlocked weights scale so total = 100.
+        const lvlKeys = Object.keys(candidate.levelWeights) as unknown as SpellLevel[];
+        const lockedSum = lvlKeys.filter((k) => locked[k]).reduce((s, k) => s + candidate.levelWeights[k], 0 as number);
+        const unlockedKeys = lvlKeys.filter((k) => !locked[k]);
+        const unlockedSum = unlockedKeys.reduce((s, k) => s + candidate.levelWeights[k], 0 as number);
+        const target = 100 - lockedSum;
+        if (unlockedSum > 0 && target > 0) {
+            for (const k of unlockedKeys) {
+                candidate.levelWeights[k] = (candidate.levelWeights[k] / unlockedSum) * target;
             }
         }
         const ev = evaluateInputs(candidate);
@@ -263,25 +280,33 @@ function encodeInputs(inp: SimInputs): number[] {
     ].map((v) => Math.min(1, Math.max(0, v)));
 }
 
-function decodeVector(vec: number[], base: SimInputs): SimInputs {
-    const raw = [2,3,4,5,6,7,8,9,10,11].map((i) => boDenorm(vec[i], i));
-    const wSum = raw.reduce((a, v) => a + v, 0) || 1;
-    const s = 100 / wSum;
+function decodeVector(vec: number[], base: SimInputs, locked: Partial<Record<SpellLevel, boolean>> = {}): SimInputs {
+    // Decode unlocked dims; locked dims keep their base value.
+    const raw = ([2,3,4,5,6,7,8,9,10,11] as const).map((vecIdx, j) => {
+        const lvl = j as SpellLevel;
+        return locked[lvl] ? base.levelWeights[lvl] : boDenorm(vec[vecIdx], vecIdx);
+    });
+    // Normalize: locked weights fixed, unlocked weights scaled to fill remainder.
+    const lockedSum = raw.reduce((s, v, j) => (locked[j as SpellLevel] ? s + v : s), 0);
+    const unlockedRaw = raw.map((v, j) => (locked[j as SpellLevel] ? 0 : v));
+    const unlockedSum = unlockedRaw.reduce((a, v) => a + v, 0) || 1;
+    const target = 100 - lockedSum;
+    const s = target > 0 ? target / unlockedSum : 0;
     return {
         ...base,
         conjurationRate:      Math.round(boDenorm(vec[0], 0)),
         baseRate:             boDenorm(vec[1], 1),
         levelWeights: {
-            0: raw[0] * s,
-            1: raw[1] * s,
-            2: raw[2] * s,
-            3: raw[3] * s,
-            4: raw[4] * s,
-            5: raw[5] * s,
-            6: raw[6] * s,
-            7: raw[7] * s,
-            8: raw[8] * s,
-            9: raw[9] * s,
+            0: locked[0] ? base.levelWeights[0] : unlockedRaw[0] * s,
+            1: locked[1] ? base.levelWeights[1] : unlockedRaw[1] * s,
+            2: locked[2] ? base.levelWeights[2] : unlockedRaw[2] * s,
+            3: locked[3] ? base.levelWeights[3] : unlockedRaw[3] * s,
+            4: locked[4] ? base.levelWeights[4] : unlockedRaw[4] * s,
+            5: locked[5] ? base.levelWeights[5] : unlockedRaw[5] * s,
+            6: locked[6] ? base.levelWeights[6] : unlockedRaw[6] * s,
+            7: locked[7] ? base.levelWeights[7] : unlockedRaw[7] * s,
+            8: locked[8] ? base.levelWeights[8] : unlockedRaw[8] * s,
+            9: locked[9] ? base.levelWeights[9] : unlockedRaw[9] * s,
         },
         shinyChance:          boDenorm(vec[12], 12),
         autographChance:      boDenorm(vec[13], 13),
@@ -396,7 +421,12 @@ function lhsSample(n: number, d: number): number[][] {
     return pts;
 }
 
-function runBayesOpt(base: SimInputs, boIterations: number, deadline: number): SearchResult[] {
+function runBayesOpt(base: SimInputs, boIterations: number, deadline: number, locked: Partial<Record<SpellLevel, boolean>> = {}, conjRange: [number, number] = [BO_LO[0], BO_HI[0]], baseRange: [number, number] = [BO_LO[1], BO_HI[1]]): SearchResult[] {
+    // Temporarily patch dims 0 and 1 so encodeInputs/decodeVector use the custom ranges.
+    const [savedLO0, savedLO1, savedHI0, savedHI1] = [BO_LO[0], BO_LO[1], BO_HI[0], BO_HI[1]];
+    BO_LO[0] = conjRange[0]; BO_HI[0] = conjRange[1];
+    BO_LO[1] = baseRange[0]; BO_HI[1] = baseRange[1];
+    try {
     const INIT_N  = 10;   // LHS seed evaluations
     const LS      = 0.3;  // RBF length scale in [0,1] space
     const NOISE   = 0.01; // diagonal noise for numerical stability
@@ -406,7 +436,7 @@ function runBayesOpt(base: SimInputs, boIterations: number, deadline: number): S
     const allResults: SearchResult[] = [];
 
     function evalVec(vec: number[]): SearchResult {
-        const inp = decodeVector(vec, base);
+        const inp = decodeVector(vec, base, locked);
         const ev  = evaluateInputs(inp);
         const sse = ev.targets.reduce((s, t) => {
             if (t.cardCount === 0 || t.avgFair <= 0) return s;
@@ -467,6 +497,10 @@ function runBayesOpt(base: SimInputs, boIterations: number, deadline: number): S
 
     allResults.sort((a, b) => (b.eval.score - a.eval.score) || (a.sse - b.sse));
     return allResults.slice(0, 10);
+    } finally {
+        BO_LO[0] = savedLO0; BO_LO[1] = savedLO1;
+        BO_HI[0] = savedHI0; BO_HI[1] = savedHI1;
+    }
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
@@ -476,6 +510,30 @@ function runBayesOpt(base: SimInputs, boIterations: number, deadline: number): S
 const LEVEL_LABELS: Record<number, string> = {
     0: 'Cantrip', 1: 'Level 1', 2: 'Level 2', 3: 'Level 3', 4: 'Level 4',
     5: 'Level 5', 6: 'Level 6', 7: 'Level 7', 8: 'Level 8', 9: 'Level 9',
+};
+
+const LEVEL_TO_RARITY: Record<number, string> = {
+    0: 'common', 1: 'common',
+    2: 'uncommon', 3: 'uncommon',
+    4: 'rare', 5: 'rare',
+    6: 'very_rare', 7: 'very_rare', 8: 'very_rare',
+    9: 'legendary',
+};
+
+const RARITY_TEXT: Record<string, string> = {
+    common: 'text-slate-300',
+    uncommon: 'text-emerald-300',
+    rare: 'text-cyan-300',
+    very_rare: 'text-purple-300',
+    legendary: 'text-amber-300',
+};
+
+const RARITY_DOT: Record<string, string> = {
+    common: 'bg-slate-400',
+    uncommon: 'bg-emerald-400',
+    rare: 'bg-cyan-400',
+    very_rare: 'bg-purple-400',
+    legendary: 'bg-amber-400',
 };
 
 function fmtMoney(n: number): string {
@@ -488,12 +546,49 @@ function fmtPct(n: number): string {
     return `${n >= 0 ? '+' : ''}${(n * 100).toFixed(1)}%`;
 }
 
+function navTo(path: string) {
+    window.history.pushState({}, '', path);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+}
+
+function defaultStarterInputs(): SimInputs {
+    return {
+        ...defaultInputs(),
+        packPrice: STARTER_PACK.packPrice,
+        cardsInPack: STARTER_PACK.cardsInPack,
+        conjurationRate: STARTER_PACK.conjurationRate,
+        baseRate: STARTER_PACK.baseRate,
+        levelWeights: { ...STARTER_LEVEL_WEIGHTS },
+        shinyChance: STARTER_PACK.shinyChance,
+        shinyMultiplierAvg: STARTER_PACK.shinyMultiplierAvg,
+        autographChance: STARTER_PACK.autographChance,
+        autoMultiplierAvg: STARTER_PACK.autoMultiplierAvg,
+        autoLegMultiplierAvg: STARTER_PACK.autoLegMultiplierAvg,
+    };
+}
+
 export default function Simulation() {
+    // Two fully-independent input states, one per pack preset.
+    // `inputs` is always the active pack; `inactiveInputs` is the saved state of the other.
+    const [activePreset, setActivePreset] = useState<'starter' | 'advanced'>('advanced');
     const [inputs, setInputs] = useState<SimInputs>(defaultInputs);
+    const [inactiveInputs, setInactiveInputs] = useState<SimInputs>(defaultStarterInputs);
     const [overridesText, setOverridesText] = useState<string>(
         JSON.stringify(defaultInputs().cardWeightOverrides, null, 2),
     );
+    const [inactiveOverridesText, setInactiveOverridesText] = useState<string>(
+        JSON.stringify(defaultStarterInputs().cardWeightOverrides, null, 2),
+    );
     const [overridesError, setOverridesError] = useState<string | null>(null);
+    const [lockedWeights, setLockedWeights] = useState<Partial<Record<SpellLevel, boolean>>>({});
+    const [inactiveLockedWeights, setInactiveLockedWeights] = useState<Partial<Record<SpellLevel, boolean>>>({});
+    const lockedWeightsRef = useRef<Partial<Record<SpellLevel, boolean>>>({});
+    const [conjRateRange, setConjRateRange] = useState<[number, number]>([40, 90]);
+    const [baseRateRange, setBaseRateRange] = useState<[number, number]>([0.6, 1.0]);
+    const [inactiveConjRateRange, setInactiveConjRateRange] = useState<[number, number]>([40, 90]);
+    const [inactiveBaseRateRange, setInactiveBaseRateRange] = useState<[number, number]>([0.6, 1.0]);
+    const conjRateRangeRef = useRef<[number, number]>([40, 90]);
+    const baseRateRangeRef = useRef<[number, number]>([0.6, 1.0]);
     const [searchIter, setSearchIter] = useState<number>(2000);
     const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
     const [searching, setSearching] = useState(false);
@@ -508,6 +603,43 @@ export default function Simulation() {
     const [boLoopRound, setBoLoopRound] = useState(0);
 
     const evaluation = useMemo(() => evaluateInputs(inputs), [inputs]);
+
+    // Each preset's eval reads from its own independent inputs.
+    const starterEval  = useMemo(() => evaluateInputs(activePreset === 'starter'  ? inputs : inactiveInputs), [activePreset, inputs, inactiveInputs]);
+    const advancedEval = useMemo(() => evaluateInputs(activePreset === 'advanced' ? inputs : inactiveInputs), [activePreset, inputs, inactiveInputs]);
+
+    function switchPreset(id: 'starter' | 'advanced') {
+        if (id === activePreset) return;
+        // Save active → inactive slot, load inactive → active slot
+        const savedInputs  = inputs;
+        const savedText    = overridesText;
+        const savedLocked  = lockedWeights;
+        const savedConjRange = conjRateRange;
+        const savedBaseRange = baseRateRange;
+        setInputs(inactiveInputs);
+        setInactiveInputs(savedInputs);
+        setOverridesText(inactiveOverridesText);
+        setInactiveOverridesText(savedText);
+        setLockedWeights(inactiveLockedWeights);
+        setInactiveLockedWeights(savedLocked);
+        lockedWeightsRef.current = inactiveLockedWeights;
+        setConjRateRange(inactiveConjRateRange);
+        setInactiveConjRateRange(savedConjRange);
+        conjRateRangeRef.current = inactiveConjRateRange;
+        setBaseRateRange(inactiveBaseRateRange);
+        setInactiveBaseRateRange(savedBaseRange);
+        baseRateRangeRef.current = inactiveBaseRateRange;
+        setActivePreset(id);
+        setOverridesError(null);
+    }
+
+    function toggleLock(lvl: SpellLevel) {
+        setLockedWeights((prev) => {
+            const next = { ...prev, [lvl]: !prev[lvl] };
+            lockedWeightsRef.current = next;
+            return next;
+        });
+    }
 
     function update<K extends keyof SimInputs>(key: K, value: SimInputs[K]) {
         setInputs((prev) => ({ ...prev, [key]: value }));
@@ -537,7 +669,7 @@ export default function Simulation() {
         setSearching(true);
         searchPendingRef.current = setTimeout(() => {
             searchPendingRef.current = null;
-            const top = randomSearch(inputs, searchIter, Date.now() + 10_000);
+            const top = randomSearch(inputs, searchIter, Date.now() + 10_000, 0.25, lockedWeightsRef.current, conjRateRangeRef.current, baseRateRangeRef.current);
             setSearchResults(top);
             setSearching(false);
         }, 50);
@@ -549,7 +681,7 @@ export default function Simulation() {
         setBoRunning(true);
         boPendingRef.current = setTimeout(() => {
             boPendingRef.current = null;
-            const top = runBayesOpt(inputs, boIter, Date.now() + 10_000);
+            const top = runBayesOpt(inputs, boIter, Date.now() + 10_000, lockedWeightsRef.current, conjRateRangeRef.current, baseRateRangeRef.current);
             setBoResults(top);
             setBoRunning(false);
         }, 50);
@@ -566,7 +698,7 @@ export default function Simulation() {
             setBoLooping(false);
             return;
         }
-        const top = randomSearch(boLoopInputsRef.current, searchIter, Date.now() + 10_000, 0.50);
+        const top = randomSearch(boLoopInputsRef.current, searchIter, Date.now() + 10_000, 0.50, lockedWeightsRef.current, conjRateRangeRef.current, baseRateRangeRef.current);
         const best = top[0];
         boLoopInputsRef.current = best.inputs;
         setBoResults(top);
@@ -585,7 +717,7 @@ export default function Simulation() {
         setOverridesError(null);
     }
     function reset() {
-        const d = defaultInputs();
+        const d = activePreset === 'starter' ? defaultStarterInputs() : defaultInputs();
         setInputs(d);
         setOverridesText(JSON.stringify(d.cardWeightOverrides, null, 2));
         setOverridesError(null);
@@ -600,236 +732,361 @@ export default function Simulation() {
     const evRatio = evaluation.rawPackEV / inputs.packPrice;
 
     return (
-        <main className="overflow-y-auto lg:h-screen lg:overflow-hidden bg-slate-950 text-slate-100 p-4">
-            <div className="max-w-screen-2xl mx-auto lg:h-full grid gap-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+        <main className="h-dvh overflow-hidden text-slate-100">
+            <div className="h-full max-w-screen-2xl mx-auto grid lg:grid-cols-[20rem_minmax(0,1fr)]">
 
-                {/* LEFT: Inputs */}
-                <aside className="grid gap-3 content-start lg:overflow-y-auto">
-                    <header className={`${panel} p-4`}>
-                        <p className={eyebrow}>Marketplace</p>
-                        <h1 className="text-xl font-bold m-0 mt-1">Simulation</h1>
-                        <p className="text-xs text-slate-400 mt-1 mb-0">
-                            Tweak inputs, watch per-level prices vs targets (±{(TOLERANCE * 100).toFixed(0)}%).
-                        </p>
-                        <div className="flex gap-2 mt-3">
-                            <a href="/" className="text-xs text-indigo-400 hover:underline">← Back to app</a>
-                            <button type="button" onClick={reset} className="ml-auto text-xs text-slate-400 hover:text-slate-200">Reset to defaults</button>
-                        </div>
-                    </header>
+                {/* ── LEFT: Inputs ─────────────────────────────────── */}
+                <aside className="flex flex-col overflow-y-auto border-r border-slate-700/40">
+                    <div className="p-3 flex flex-col gap-3">
 
-                    <section className={`${panel} p-4 grid gap-3`}>
-                        <h2 className={secTitle}>Pack</h2>
-                        <NumberRow label="Pack price (gp)" value={inputs.packPrice} onChange={(v) => update('packPrice', v)} step={100} />
-                        <NumberRow label="Cards / pack" value={inputs.cardsInPack} onChange={(v) => update('cardsInPack', v)} step={1} min={1} />
-                        <NumberRow label="Conjuration rate %" value={inputs.conjurationRate} onChange={(v) => update('conjurationRate', v)} step={1} min={0} max={100} />
-                        <NumberRow label="Base rate" value={inputs.baseRate} onChange={(v) => update('baseRate', v)} step={0.01} min={0.1} max={2} />
-                    </section>
-
-                    <section className={`${panel} p-4 grid gap-3`}>
-                        <div className="flex justify-between items-baseline">
-                            <h2 className={secTitle}>Level weights</h2>
-                            <span className={`text-[10px] ${Math.abs(weightSum - 100) > 0.5 ? 'text-yellow-400' : 'text-slate-500'}`}>
-                                Σ {weightSum.toFixed(2)}
-                            </span>
-                        </div>
-                        {spellLevels.map((lvl) => (
-                            <NumberRow
-                                key={lvl}
-                                label={LEVEL_LABELS[lvl]}
-                                value={inputs.levelWeights[lvl]}
-                                onChange={(v) => updateWeight(lvl, v)}
-                                step={0.01}
-                                min={0}
-                            />
-                        ))}
-                    </section>
-
-                    <section className={`${panel} p-4 grid gap-3`}>
-                        <h2 className={secTitle}>Variants</h2>
-                        <NumberRow label="Shiny chance" value={inputs.shinyChance} onChange={(v) => update('shinyChance', v)} step={0.005} min={0} max={1} />
-                        <NumberRow label="Autograph chance" value={inputs.autographChance} onChange={(v) => update('autographChance', v)} step={0.005} min={0} max={1} />
-                        <NumberRow label="E[shiny ×]" value={inputs.shinyMultiplierAvg} onChange={(v) => update('shinyMultiplierAvg', v)} step={0.05} min={1} />
-                        <NumberRow label="E[auto ×] non-leg" value={inputs.autoMultiplierAvg} onChange={(v) => update('autoMultiplierAvg', v)} step={0.05} min={1} />
-                        <NumberRow label="E[auto ×] legendary" value={inputs.autoLegMultiplierAvg} onChange={(v) => update('autoLegMultiplierAvg', v)} step={0.05} min={1} />
-                    </section>
-
-                    <section className={`${panel} p-4 grid gap-3`}>
-                        <h2 className={secTitle}>Spell weight overrides</h2>
-                        <NumberRow
-                            label="True Resurrection (L9)"
-                            value={inputs.cardWeightOverrides['9-True Resurrection-Necromancy'] ?? 1}
-                            onChange={(v) => update('cardWeightOverrides', { ...inputs.cardWeightOverrides, '9-True Resurrection-Necromancy': v })}
-                            step={0.005}
-                            min={0.001}
-                            max={5}
-                        />
-                        <NumberRow
-                            label="Wish (L9)"
-                            value={inputs.cardWeightOverrides['9-Wish-Conjuration1'] ?? 1}
-                            onChange={(v) => update('cardWeightOverrides', { ...inputs.cardWeightOverrides, '9-Wish-Conjuration1': v })}
-                            step={0.005}
-                            min={0.001}
-                            max={5}
-                        />
-                        <details className="mt-1">
-                            <summary className="text-[11px] text-slate-500 cursor-pointer select-none">Advanced: edit all overrides as JSON</summary>
-                            <div className="mt-2 grid gap-1">
-                                <textarea
-                                    value={overridesText}
-                                    onChange={(e) => setOverridesText(e.target.value)}
-                                    onBlur={commitOverrides}
-                                    rows={6}
-                                    className={inp + ' font-mono text-xs mt-1'}
-                                />
-                                {overridesError && <p className="text-xs text-red-400 m-0">JSON error: {overridesError}</p>}
+                        {/* Header */}
+                        <div className={`${panel} p-3.5`}>
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                                <div>
+                                    <p className={eyebrow}>Market</p>
+                                    <h1 className="text-lg font-bold text-white m-0 mt-0.5 leading-tight">Simulation</h1>
+                                </div>
+                                <span className={`shrink-0 px-2.5 py-1 rounded-full border text-xs font-bold tabular-nums ${
+                                    evaluation.passAll
+                                        ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                        : 'bg-yellow-500/10 border-yellow-500/25 text-yellow-300'
+                                }`}>
+                                    {evaluation.score}<span className="text-slate-500 font-normal mx-0.5">/</span>{evaluation.activeTargetCount}
+                                </span>
                             </div>
-                        </details>
-                    </section>
+                            <p className="text-xs text-slate-500 mb-2.5 leading-snug">
+                                Calibrate fair prices vs targets (±{(TOLERANCE * 100).toFixed(0)}%). Run search to find optimal params.
+                            </p>
+                            <div className="flex gap-1.5 flex-wrap">
+                                <button onClick={() => navTo('/')} className="text-xs text-slate-400 hover:text-slate-200 px-2.5 py-1 rounded-lg bg-white/5 border border-slate-700/50 hover:border-slate-500 transition-colors">← App</button>
+                                <button type="button" onClick={reset} className="ml-auto text-xs text-slate-500 hover:text-slate-300 px-2.5 py-1 rounded-lg hover:bg-white/5 border border-transparent hover:border-slate-700/50 transition-colors">Reset</button>
+                            </div>
+                        </div>
 
+                        {/* Pack settings */}
+                        <div className={`${panel} p-3.5 grid gap-2.5`}>
+                            <div className="flex items-center justify-between">
+                                <h2 className={secTitle}>Pack</h2>
+                                <div className="flex gap-1">
+                                    {PACK_PRESETS_SIM.map((p) => (
+                                        <button key={p.id} type="button" onClick={() => switchPreset(p.id)}
+                                            className={`text-xs px-2 py-0.5 rounded-md border transition-colors ${
+                                                activePreset === p.id
+                                                    ? 'bg-indigo-500/25 border-indigo-500/50 text-indigo-200'
+                                                    : 'bg-white/5 border-slate-700/50 hover:border-slate-500 text-slate-400 hover:text-slate-200'
+                                            }`}>
+                                            {p.name}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2">
+                                <CompactField label="Price (gp)">
+                                    <input type="number" value={inputs.packPrice} step={100}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('packPrice', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="Cards / pack">
+                                    <input type="number" value={inputs.cardsInPack} min={1} step={1}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('cardsInPack', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="Conj rate %">
+                                    <input type="number" value={inputs.conjurationRate} min={0} max={100} step={1}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('conjurationRate', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="Base rate">
+                                    <input type="number" value={inputs.baseRate} min={0.1} max={2} step={0.01}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('baseRate', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                            </div>
+                            {/* Search ranges */}
+                            <div className="grid gap-1.5 pt-0.5 border-t border-slate-700/40">
+                                <p className="text-xs text-slate-600 uppercase tracking-wider">Search ranges</p>
+                                {([
+                                    ['Conj %', conjRateRange, (v: [number, number]) => { setConjRateRange(v); conjRateRangeRef.current = v; }, 0, 100, 1],
+                                    ['Base rate', baseRateRange, (v: [number, number]) => { setBaseRateRange(v); baseRateRangeRef.current = v; }, 0.05, 4, 0.05],
+                                ] as const).map(([label, range, setRange, min, max, step]) => (
+                                    <div key={label} className="flex items-center gap-1.5 text-xs">
+                                        <span className="w-16 shrink-0 text-slate-500">{label}</span>
+                                        <input type="number" value={range[0]} min={min} max={range[1]} step={step}
+                                            onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v) && v < range[1]) setRange([v, range[1]]); }}
+                                            className={inp + ' py-0.5 px-1.5 text-xs text-right font-mono flex-1'} />
+                                        <span className="text-slate-600 shrink-0">–</span>
+                                        <input type="number" value={range[1]} min={range[0]} max={max} step={step}
+                                            onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v) && v > range[0]) setRange([range[0], v]); }}
+                                            className={inp + ' py-0.5 px-1.5 text-xs text-right font-mono flex-1'} />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Level weights */}
+                        <div className={`${panel} p-3.5 grid gap-2.5`}>
+                            <div className="flex items-center justify-between">
+                                <h2 className={secTitle}>Level weights</h2>
+                                <span className={`text-xs font-mono ${Math.abs(weightSum - 100) > 0.5 ? 'text-yellow-400' : 'text-slate-600'}`}>
+                                    Σ {weightSum.toFixed(1)}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-1">
+                                {spellLevels.map((lvl) => {
+                                    const isLocked = !!lockedWeights[lvl];
+                                    return (
+                                        <div key={lvl} className="flex items-center gap-1 text-xs">
+                                            <span className={`w-10 shrink-0 ${RARITY_TEXT[LEVEL_TO_RARITY[lvl]]}`}>{LEVEL_LABELS[lvl]}</span>
+                                            <input type="number" value={inputs.levelWeights[lvl]} step={0.01} min={0}
+                                                disabled={isLocked}
+                                                onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) updateWeight(lvl, v); }}
+                                                className={inp + ' py-0.5 px-1.5 text-xs text-right font-mono flex-1' + (isLocked ? ' opacity-40 cursor-not-allowed' : '')} />
+                                            <button type="button" onClick={() => toggleLock(lvl)}
+                                                title={isLocked ? 'Unlock' : 'Lock'}
+                                                className={`shrink-0 rounded p-0.5 transition-colors ${isLocked ? 'text-amber-400 hover:text-amber-300' : 'text-slate-600 hover:text-slate-400'}`}>
+                                                {isLocked ? <Lock size={11} /> : <Unlock size={11} />}
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Variants */}
+                        <div className={`${panel} p-3.5 grid gap-2.5`}>
+                            <h2 className={secTitle}>Variants</h2>
+                            <div className="grid grid-cols-2 gap-2">
+                                <CompactField label="Shiny chance">
+                                    <input type="number" value={inputs.shinyChance} min={0} max={1} step={0.005}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('shinyChance', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="E[shiny ×]">
+                                    <input type="number" value={inputs.shinyMultiplierAvg} min={1} step={0.05}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('shinyMultiplierAvg', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="Auto chance">
+                                    <input type="number" value={inputs.autographChance} min={0} max={1} step={0.005}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('autographChance', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                                <CompactField label="E[auto ×] non-leg">
+                                    <input type="number" value={inputs.autoMultiplierAvg} min={1} step={0.05}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('autoMultiplierAvg', v); }}
+                                        className={inp + ' py-1 px-2 text-xs text-right font-mono'} />
+                                </CompactField>
+                            </div>
+                            <label className="flex items-center gap-2 text-xs">
+                                <span className="text-slate-400 flex-1">E[auto ×] legendary</span>
+                                <input type="number" value={inputs.autoLegMultiplierAvg} min={1} step={0.05}
+                                    onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('autoLegMultiplierAvg', v); }}
+                                    className={inp + ' w-24 py-1 px-2 text-xs text-right font-mono'} />
+                            </label>
+                        </div>
+
+                        {/* Spell overrides */}
+                        <div className={`${panel} p-3.5 grid gap-2.5`}>
+                            <h2 className={secTitle}>Spell overrides</h2>
+                            <label className="flex items-center gap-2 text-xs">
+                                <span className="text-amber-300/80 flex-1">True Resurrection</span>
+                                <input type="number" value={inputs.cardWeightOverrides['9-True Resurrection-Necromancy'] ?? 1}
+                                    min={0.001} max={5} step={0.005}
+                                    onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('cardWeightOverrides', { ...inputs.cardWeightOverrides, '9-True Resurrection-Necromancy': v }); }}
+                                    className={inp + ' w-24 py-1 px-2 text-xs text-right font-mono'} />
+                            </label>
+                            <label className="flex items-center gap-2 text-xs">
+                                <span className="text-amber-300/80 flex-1">Wish</span>
+                                <input type="number" value={inputs.cardWeightOverrides['9-Wish-Conjuration1'] ?? 1}
+                                    min={0.001} max={5} step={0.005}
+                                    onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) update('cardWeightOverrides', { ...inputs.cardWeightOverrides, '9-Wish-Conjuration1': v }); }}
+                                    className={inp + ' w-24 py-1 px-2 text-xs text-right font-mono'} />
+                            </label>
+                            <details>
+                                <summary className="text-xs text-slate-500 cursor-pointer select-none hover:text-slate-400 transition-colors">▸ Edit all as JSON</summary>
+                                <div className="mt-1.5 grid gap-1">
+                                    <textarea value={overridesText} onChange={(e) => setOverridesText(e.target.value)}
+                                        onBlur={commitOverrides} rows={5}
+                                        className={inp + ' font-mono text-xs'} />
+                                    {overridesError && <p className="text-xs text-red-400">JSON error: {overridesError}</p>}
+                                </div>
+                            </details>
+                        </div>
+
+                    </div>
                 </aside>
 
-                {/* RIGHT: Results */}
-                <section className="grid gap-3 content-start lg:overflow-y-auto">
+                {/* ── RIGHT: Results ─────────────────────────────────── */}
+                <section className="overflow-y-auto">
+                    <div className="p-3 flex flex-col gap-3">
 
-                    <div className={`${panel} p-4 grid grid-cols-1 sm:grid-cols-2 gap-4`}>
-                        <div className="grid gap-3">
-                            <h2 className={secTitle}>Random search</h2>
-                            <NumberRow label="Iterations" value={searchIter} onChange={setSearchIter} step={500} min={100} max={50000} />
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={runSearch}
-                                    disabled={searching || boLooping}
-                                    className="flex-1 rounded-xl px-3 py-2 bg-gradient-to-br from-violet-500 to-blue-500 text-white text-sm font-semibold disabled:opacity-50"
-                                >
-                                    {searching ? 'Searching…' : `Run ${searchIter.toLocaleString()} trials`}
-                                </button>
-                                {boLooping ? (
-                                    <button
-                                        type="button"
-                                        onClick={stopBoLoop}
-                                        className="flex-1 rounded-xl px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white text-sm font-semibold"
-                                    >
-                                        Stop
+                        {/* Search controls */}
+                        <div className={`${panel} p-4 grid grid-cols-1 sm:grid-cols-2 gap-4`}>
+                            <div className="grid gap-2">
+                                <h2 className={secTitle}>Random search</h2>
+                                <label className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-400 flex-1">Iterations</span>
+                                    <input type="number" value={searchIter} min={100} max={50_000} step={500}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) setSearchIter(v); }}
+                                        className={inp + ' w-24 py-1 px-2 text-xs text-right font-mono'} />
+                                </label>
+                                <div className="flex gap-1.5">
+                                    <button type="button" onClick={runSearch} disabled={searching || boLooping}
+                                        className="flex-1 rounded-lg px-3 py-2 bg-gradient-to-br from-violet-600 to-blue-600 hover:from-violet-500 hover:to-blue-500 text-white text-xs font-semibold disabled:opacity-50 transition-all">
+                                        {searching ? '↻ Running…' : `Run ${searchIter.toLocaleString()}`}
                                     </button>
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={startBoLoop}
-                                        disabled={searching || boRunning}
-                                        className="flex-1 rounded-xl px-3 py-2 bg-gradient-to-br from-amber-500 to-orange-500 text-white text-sm font-semibold disabled:opacity-50"
-                                    >
-                                        Loop ∞
-                                    </button>
+                                    {boLooping ? (
+                                        <button type="button" onClick={stopBoLoop}
+                                            className="flex-1 rounded-lg px-3 py-2 bg-red-600/80 hover:bg-red-600 text-white text-xs font-semibold transition-colors">
+                                            ■ Stop
+                                        </button>
+                                    ) : (
+                                        <button type="button" onClick={startBoLoop} disabled={searching || boRunning}
+                                            className="flex-1 rounded-lg px-3 py-2 bg-gradient-to-br from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white text-xs font-semibold disabled:opacity-50 transition-all">
+                                            Loop ∞
+                                        </button>
+                                    )}
+                                </div>
+                                {boLooping && (
+                                    <p className="text-xs text-emerald-400 font-mono">
+                                        Round {boLoopRound} · {boResults?.[0]
+                                            ? `${boResults[0].eval.score}/${boResults[0].eval.activeTargetCount} · SSE ${boResults[0].sse.toFixed(3)}`
+                                            : '…'}
+                                    </p>
                                 )}
                             </div>
-                            {boLooping && (
-                                <p className="text-xs text-emerald-400 font-mono">
-                                    Round {boLoopRound} — best: {boResults?.[0] ? `${boResults[0].eval.score}/${PRICE_TARGETS.length + 1} passes, SSE ${boResults[0].sse.toFixed(3)}` : '…'}
-                                </p>
-                            )}
-                            <p className="text-xs text-slate-500">
-                                Uniform sweep over bounds. <em>Loop</em> runs BO continuously, auto-applying the best result each round.
-                            </p>
+                            <div className="grid gap-2 sm:border-l border-slate-700/40 sm:pl-4">
+                                <h2 className={secTitle}>Bayesian opt</h2>
+                                <label className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-400 flex-1">BO iterations</span>
+                                    <input type="number" value={boIter} min={10} max={200} step={10}
+                                        onChange={(e) => { const v = +e.target.value; if (Number.isFinite(v)) setBoIter(v); }}
+                                        className={inp + ' w-24 py-1 px-2 text-xs text-right font-mono'} />
+                                </label>
+                                <button type="button" onClick={runBO} disabled={boRunning || boLooping}
+                                    className="rounded-lg px-3 py-2 bg-gradient-to-br from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white text-xs font-semibold disabled:opacity-50 transition-all">
+                                    {boRunning ? '↻ Optimising…' : `Run ${boIter} BO steps`}
+                                </button>
+                                <p className="text-xs text-slate-600">RBF-GP + UCB · {BO_DIM}D · {boIter + 10} evals/run</p>
+                            </div>
                         </div>
-                        <div className="grid gap-3 sm:border-l border-slate-700/50 sm:pl-4">
-                            <h2 className={secTitle}>Bayesian optimisation</h2>
-                            <NumberRow label="BO iterations" value={boIter} onChange={setBoIter} step={10} min={10} max={200} />
-                            <button
-                                type="button"
-                                onClick={runBO}
-                                disabled={boRunning || boLooping}
-                                className="rounded-xl px-3 py-2 bg-gradient-to-br from-emerald-500 to-teal-500 text-white text-sm font-semibold disabled:opacity-50"
-                            >
-                                {boRunning ? 'Optimising…' : `Run ${boIter} BO steps`}
-                            </button>
-                            <p className="text-xs text-slate-500">
-                                RBF-GP surrogate + UCB acquisition over all {BO_DIM} parameters ({boIter + 10} evals per run).
-                            </p>
-                        </div>
-                    </div>
 
-                    <div className={`${panel} p-4 grid gap-3`}>
-                        <h2 className={secTitle}>Pack EV check</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-                            <Stat label="Pack price" value={fmtMoney(inputs.packPrice) + ' gp'} />
-                            <Stat
-                                label="Raw EV (sum pDraw·fair)"
-                                value={fmtMoney(evaluation.rawPackEV) + ' gp'}
-                                tone={Math.abs(evRatio - 1) < 0.001 ? 'good' : 'bad'}
-                                hint={`× ${evRatio.toFixed(3)}`}
-                            />
-                            <Stat
-                                label="Variant-adjusted EV"
-                                value={fmtMoney(evaluation.packEV) + ' gp'}
-                                hint={`× ${(evaluation.packEV / inputs.packPrice).toFixed(3)}`}
-                            />
+                        {/* Pack EV comparison */}
+                        <div className={`${panel} p-4`}>
+                            <h2 className={`${secTitle} mb-3`}>Pack EV comparison</h2>
+                            <div className="grid grid-cols-[1fr_3.5rem_3.5rem_3.5rem_3.5rem] gap-1 pb-1.5 mb-0.5 border-b border-slate-700/40 text-xs text-slate-500 uppercase tracking-wider">
+                                <span>Pack</span>
+                                <span className="text-right">Price</span>
+                                <span className="text-right">Raw EV</span>
+                                <span className="text-right">EV/price</span>
+                                <span className="text-right">+Variants</span>
+                            </div>
+                            {([['Starter', starterEval, 500, 'starter'], ['Advanced', advancedEval, 1000, 'advanced']] as const).map(([name, ev, price, presetId]) => {
+                                const ratio = ev.rawPackEV / price;
+                                const isActive = activePreset === presetId;
+                                return (
+                                    <div key={name} className={`grid grid-cols-[1fr_3.5rem_3.5rem_3.5rem_3.5rem] gap-1 items-center py-1.5 border-b border-slate-800/40 text-xs rounded transition-colors cursor-pointer hover:bg-white/3 ${
+                                        isActive ? 'text-white' : 'text-slate-400'
+                                    }`} onClick={() => switchPreset(presetId)}>
+                                        <div className="flex items-center gap-1.5">
+                                            {isActive && <span className="w-1 h-1 rounded-full bg-indigo-400 shrink-0" />}
+                                            <span className="font-medium">{name}</span>
+                                        </div>
+                                        <span className="text-right font-mono">{fmtMoney(price)}</span>
+                                        <span className={`text-right font-mono ${Math.abs(ratio - 1) < 0.05 ? 'text-emerald-300' : ratio > 1.05 ? 'text-sky-300' : 'text-red-300'}`}>
+                                            {fmtMoney(ev.rawPackEV)}
+                                        </span>
+                                        <span className={`text-right font-mono ${Math.abs(ratio - 1) < 0.05 ? 'text-emerald-300' : ratio > 1.05 ? 'text-sky-300' : 'text-red-300'}`}>
+                                            {ratio.toFixed(3)}×
+                                        </span>
+                                        <span className="text-right font-mono text-slate-400">{fmtMoney(ev.packEV)}</span>
+                                    </div>
+                                );
+                            })}
                         </div>
-                        <p className="text-xs text-slate-500">
-                            Raw EV is mathematically pinned to pack price. Variant EV shows total expected value once shiny/autograph variants are applied — anything above 1.00× means buyers come out ahead on average.
-                        </p>
-                    </div>
 
-                    <div className={`${panel} p-4 grid gap-3`}>
-                        <div className="flex items-baseline justify-between">
-                            <h2 className={secTitle}>Per-level price targets</h2>
-                            <span className={`text-xs font-semibold ${evaluation.passAll ? 'text-emerald-400' : 'text-yellow-400'}`}>
-                                {evaluation.score} / {PRICE_TARGETS.length + 1} pass
-                            </span>
+                        {/* Pack EV check */}
+                        <div className={`${panel} p-4`}>
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className={secTitle}>Pack EV check</h2>
+                                <span className={`text-xs font-mono px-2.5 py-0.5 rounded-full border ${evaluation.evPass ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-red-500/10 border-red-500/25 text-red-300'}`}>
+                                    {evaluation.evPass ? '● balanced' : '○ drifted'}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                <Stat label="Pack price" value={fmtMoney(inputs.packPrice) + ' gp'} />
+                                <Stat label="Raw EV" value={fmtMoney(evaluation.rawPackEV) + ' gp'}
+                                    tone={Math.abs(evRatio - 1) < 0.001 ? 'good' : 'bad'}
+                                    hint={`× ${evRatio.toFixed(3)}`} />
+                                <Stat label="Variant EV" value={fmtMoney(evaluation.packEV) + ' gp'}
+                                    hint={`× ${(evaluation.packEV / inputs.packPrice).toFixed(3)}`} />
+                            </div>
                         </div>
-                        <div className="overflow-x-auto">
-                        <table className="w-full border-collapse text-sm">
-                            <thead>
-                                <tr className="text-xs text-slate-400 uppercase tracking-wider">
-                                    <th className="text-left py-1">Target</th>
-                                    <th className="text-left">Rarity</th>
-                                    <th className="text-right">Target</th>
-                                    <th className="text-right">Avg fair</th>
-                                    <th className="text-right">Δ%</th>
-                                    <th className="text-right">w/ variants</th>
-                                    <th className="text-right">#</th>
-                                    <th className="text-center">Pass</th>
-                                </tr>
-                            </thead>
-                            <tbody>
+
+                        {/* Price targets */}
+                        <div className={`${panel} p-4`}>
+                            <div className="flex items-center justify-between mb-3">
+                                <h2 className={secTitle}>Price targets</h2>
+                                <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${evaluation.passAll ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300' : 'bg-yellow-500/10 border-yellow-500/25 text-yellow-300'}`}>
+                                    {evaluation.score} / {evaluation.activeTargetCount} pass
+                                </span>
+                            </div>
+                            <div>
+                                <div className="grid grid-cols-[1fr_3.5rem_3.5rem_3.5rem_4rem_1.25rem] gap-1 pb-1.5 mb-0.5 border-b border-slate-700/40 text-xs text-slate-500 uppercase tracking-wider">
+                                    <span>Target</span>
+                                    <span className="text-right">Goal</span>
+                                    <span className="text-right">Fair</span>
+                                    <span className="text-right">Δ%</span>
+                                    <span className="text-center">Δ bar</span>
+                                    <span />
+                                </div>
                                 {evaluation.targets.map((t) => (
-                                    <tr key={t.label} className="border-t border-slate-700/40">
-                                        <td className="py-1.5 text-slate-200 whitespace-nowrap">{t.label}</td>
-                                        <td className="text-slate-300 capitalize">{t.targetRarity.replace('_', ' ')}</td>
-                                        <td className="text-right font-mono text-slate-300">{fmtMoney(t.targetPrice)}</td>
-                                        <td className={`text-right font-mono ${t.pass ? 'text-emerald-300' : 'text-red-300'}`}>{fmtMoney(t.avgFair)}</td>
-                                        <td className={`text-right font-mono ${t.pass ? 'text-emerald-400' : 'text-red-400'}`}>{fmtPct(t.deltaPct)}</td>
-                                        <td className="text-right font-mono text-slate-400">{fmtMoney(t.avgWithVariants)}</td>
-                                        <td className="text-right font-mono text-slate-500">{t.cardCount}</td>
-                                        <td className="text-center">{t.pass ? '✓' : '✗'}</td>
-                                    </tr>
+                                    <div key={t.label} className={`grid grid-cols-[1fr_3.5rem_3.5rem_3.5rem_4rem_1.25rem] gap-1 items-center py-1 border-b border-slate-800/40 text-xs rounded transition-colors ${
+                                        t.excluded ? 'opacity-35' : 'hover:bg-white/3'
+                                    }`}>
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${RARITY_DOT[t.targetRarity] ?? 'bg-slate-400'}`} />
+                                            <span className="text-slate-200 truncate">{t.label}</span>
+                                        </div>
+                                        <span className="text-right font-mono text-slate-600">{fmtMoney(t.targetPrice)}</span>
+                                        {t.excluded ? (
+                                            <>
+                                                <span className="text-right font-mono text-slate-700">—</span>
+                                                <span className="text-right font-mono text-slate-700">N/A</span>
+                                                <div />
+                                                <span className="text-center text-slate-700">—</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className={`text-right font-mono ${t.pass ? 'text-emerald-300' : 'text-red-300'}`}>{fmtMoney(t.avgFair)}</span>
+                                                <span className={`text-right font-mono ${t.pass ? 'text-emerald-400' : 'text-red-400'}`}>{fmtPct(t.deltaPct)}</span>
+                                                <DeltaBar pct={t.deltaPct} pass={t.pass} />
+                                                <span className={`text-center ${t.pass ? 'text-emerald-400' : 'text-red-400'}`}>{t.pass ? '●' : '○'}</span>
+                                            </>
+                                        )}
+                                    </div>
                                 ))}
-                                <tr className="border-t-2 border-slate-600">
-                                    <td className="py-1.5 text-slate-200 whitespace-nowrap">Variant EV ≈ Raw EV</td>
-                                    <td className="text-slate-500">—</td>
-                                    <td className="text-right font-mono text-slate-300">{fmtMoney(evaluation.rawPackEV)} gp</td>
-                                    <td className={`text-right font-mono ${evaluation.evPass ? 'text-emerald-300' : 'text-red-300'}`}>{fmtMoney(evaluation.packEV)} gp</td>
-                                    <td className={`text-right font-mono ${evaluation.evPass ? 'text-emerald-400' : 'text-red-400'}`}>{fmtPct(evaluation.packEV / evaluation.rawPackEV - 1)}</td>
-                                    <td className="text-slate-500">—</td>
-                                    <td className="text-slate-500">—</td>
-                                    <td className="text-center">{evaluation.evPass ? '✓' : '✗'}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                                <div className="grid grid-cols-[1fr_3.5rem_3.5rem_3.5rem_4rem_1.25rem] gap-1 items-center py-1 text-xs border-t-2 border-slate-600/50 mt-0.5">
+                                    <span className="text-slate-400">Variant EV ≈ Raw EV</span>
+                                    <span className="text-right font-mono text-slate-600">{fmtMoney(evaluation.rawPackEV)}</span>
+                                    <span className={`text-right font-mono ${evaluation.evPass ? 'text-emerald-300' : 'text-red-300'}`}>{fmtMoney(evaluation.packEV)}</span>
+                                    <span className={`text-right font-mono ${evaluation.evPass ? 'text-emerald-400' : 'text-red-400'}`}>{fmtPct(evaluation.packEV / evaluation.rawPackEV - 1)}</span>
+                                    <DeltaBar pct={evaluation.packEV / evaluation.rawPackEV - 1} pass={evaluation.evPass} />
+                                    <span className={`text-center ${evaluation.evPass ? 'text-emerald-400' : 'text-red-400'}`}>{evaluation.evPass ? '●' : '○'}</span>
+                                </div>
+                            </div>
                         </div>
+
+                        {searchResults && <ResultsCards results={searchResults} title="Random search — top 10" onApply={applyResult} />}
+                        {boResults && <ResultsCards results={boResults} title="Bayesian opt — top 10" onApply={applyResult} />}
+
+                        <div className={`${panel} px-4 py-2.5`}>
+                            <p className="text-xs text-slate-600">
+                                {spellCards.length} cards · Random search: uniform ±25% over bounds · BO: RBF-GP + UCB · {BO_DIM}D
+                            </p>
+                        </div>
+
                     </div>
-
-                    {searchResults && <ResultsTable results={searchResults} title="Random search — top 10" onApply={applyResult} />}
-                    {boResults && <ResultsTable results={boResults} title="Bayesian opt — top 10" onApply={applyResult} />}
-
-                    <div className={`${panel} p-4`}>
-                        <p className="text-xs text-slate-500">
-                            Loaded {spellCards.length} cards. Random search: uniform over bounds (conj 40–90, base 0.6–1.0, level weights → 100).
-                            Bayesian opt: RBF-GP surrogate + UCB acquisition over all {BO_DIM} parameters simultaneously.
-                            Apply a top result and re-run either search to refine further.
-                        </p>
-                    </div>
-
                 </section>
             </div>
         </main>
@@ -837,122 +1094,127 @@ export default function Simulation() {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * Helpers
+ * Helper components
  * ───────────────────────────────────────────────────────────────────────── */
 
-function NumberRow({
-    label, value, onChange, step = 1, min, max,
-}: {
-    label: string; value: number; onChange: (v: number) => void;
-    step?: number; min?: number; max?: number;
-}) {
+function CompactField({ label, children }: { label: string; children: ReactNode }) {
     return (
-        <label className="grid grid-cols-[1fr_6.5rem] items-center gap-2 text-xs">
-            <span className="text-slate-300">{label}</span>
-            <input
-                type="number"
-                value={value}
-                onChange={(e) => {
-                    const v = Number.parseFloat(e.target.value);
-                    if (Number.isFinite(v)) onChange(v);
-                }}
-                step={step}
-                min={min}
-                max={max}
-                className={inp + ' text-right font-mono'}
-            />
-        </label>
+        <div className="grid gap-0.5">
+            <span className="text-xs text-slate-500">{label}</span>
+            {children}
+        </div>
+    );
+}
+
+function DeltaBar({ pct, pass }: { pct: number; pass: boolean }) {
+    const clamped = Math.max(-1, Math.min(1, pct));
+    const width = Math.abs(clamped) * 50;
+    const isRight = clamped >= 0;
+    return (
+        <div className="flex items-center px-0.5">
+            <div className="w-full h-2 bg-slate-800 rounded-full relative overflow-hidden">
+                <div className="absolute inset-y-0 left-1/2 w-px bg-slate-600 -translate-x-px" />
+                <div
+                    className={`absolute inset-y-0 rounded-full transition-all duration-200 ${pass ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    style={{ left: isRight ? '50%' : `${50 - width}%`, width: `${width}%` }}
+                />
+            </div>
+        </div>
     );
 }
 
 function Stat({ label, value, tone, hint }: { label: string; value: string; tone?: 'good' | 'bad'; hint?: string }) {
     const color = tone === 'good' ? 'text-emerald-300' : tone === 'bad' ? 'text-red-300' : 'text-slate-100';
     return (
-        <div className="rounded-xl bg-white/5 border border-slate-700/50 p-3">
-            <div className="text-[10px] uppercase tracking-wider text-slate-400">{label}</div>
-            <div className={`text-base font-bold font-mono ${color} mt-0.5`}>{value}</div>
-            {hint && <div className="text-[10px] text-slate-500 font-mono mt-0.5">{hint}</div>}
+        <div className="rounded-xl bg-white/5 border border-slate-700/50 px-3 py-2.5">
+            <div className="text-xs text-slate-500 mb-0.5">{label}</div>
+            <div className={`text-sm font-bold font-mono ${color} leading-tight`}>{value}</div>
+            {hint && <div className="text-xs text-slate-600 font-mono mt-0.5">{hint}</div>}
         </div>
     );
 }
 
-function ResultsTable({ results, title, onApply }: {
+function ResultsCards({ results, title, onApply }: {
     results: SearchResult[];
     title: string;
     onApply: (r: SearchResult) => void;
 }) {
+    const [expanded, setExpanded] = useState<number | null>(null);
+    const globalMax = results.length > 0
+        ? Math.max(1, ...results.flatMap((r) => spellLevels.map((l) => r.inputs.levelWeights[l])))
+        : 1;
+
     return (
         <div className={`${panel} p-4`}>
-            <h2 className={secTitle}>{title}</h2>
-            <div className="overflow-x-auto mt-2">
-            <table className="w-full border-collapse text-sm">
-                <thead>
-                    <tr className="text-xs text-slate-400 uppercase tracking-wider">
-                        <th className="text-left py-1">#</th>
-                        <th className="text-right">Pass</th>
-                        <th className="text-right">SSE</th>
-                        <th className="text-right">conj%</th>
-                        <th className="text-right">base</th>
-                        <th className="text-right">L0</th>
-                        <th className="text-right">L1</th>
-                        <th className="text-right">L2</th>
-                        <th className="text-right">L3</th>
-                        <th className="text-right">L4</th>
-                        <th className="text-right">L5</th>
-                        <th className="text-right">L6</th>
-                        <th className="text-right">L7</th>
-                        <th className="text-right">L8</th>
-                        <th className="text-right">L9</th>
-                        <th className="text-right">shiny%</th>
-                        <th className="text-right">auto%</th>
-                        <th className="text-right">shiny×</th>
-                        <th className="text-right">auto×</th>
-                        <th className="text-right">aLeg×</th>
-                        <th className="text-right">Wish</th>
-                        <th className="text-right">TrueRes</th>
-                        <th className="text-center">Apply</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {results.map((r, i) => (
-                        <tr key={i} className="border-t border-slate-700/40">
-                            <td className="py-1 text-slate-400">{i + 1}</td>
-                            <td className={`text-right font-mono ${r.eval.passAll ? 'text-emerald-300' : 'text-slate-200'}`}>
-                                {r.eval.score}/{PRICE_TARGETS.length + 1}
-                            </td>
-                            <td className="text-right font-mono text-slate-400">{r.sse.toFixed(3)}</td>
-                            <td className="text-right font-mono">{r.inputs.conjurationRate}</td>
-                            <td className="text-right font-mono">{r.inputs.baseRate.toFixed(3)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[0].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[1].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[2].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[3].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[4].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[5].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[6].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[7].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[8].toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.levelWeights[9].toFixed(2)}</td>
-                            <td className="text-right font-mono">{(r.inputs.shinyChance * 100).toFixed(1)}%</td>
-                            <td className="text-right font-mono">{(r.inputs.autographChance * 100).toFixed(1)}%</td>
-                            <td className="text-right font-mono">{r.inputs.shinyMultiplierAvg.toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.autoMultiplierAvg.toFixed(2)}</td>
-                            <td className="text-right font-mono">{r.inputs.autoLegMultiplierAvg.toFixed(2)}</td>
-                            <td className="text-right font-mono">{(r.inputs.cardWeightOverrides[WISH_FILE] ?? 1).toFixed(3)}</td>
-                            <td className="text-right font-mono">{(r.inputs.cardWeightOverrides[TRUEREZ_FILE] ?? 1).toFixed(3)}</td>
-                            <td className="text-center">
-                                <button
-                                    type="button"
-                                    onClick={() => onApply(r)}
-                                    className="text-xs px-2 py-0.5 rounded bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-200 border border-indigo-500/40"
-                                >
-                                    apply
-                                </button>
-                            </td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
+            <h2 className={`${secTitle} mb-3`}>{title}</h2>
+            <div className="grid grid-cols-[1.5rem_3rem_4rem_3.5rem_4.5rem_1fr_5rem] gap-2 px-3 pb-1.5 mb-1 border-b border-slate-700/40 text-xs text-slate-500 uppercase tracking-wider">
+                <span>#</span>
+                <span>Pass</span>
+                <span>SSE</span>
+                <span>Conj</span>
+                <span>Base</span>
+                <span>Weights L0→L9</span>
+                <span />
+            </div>
+            <div className="space-y-1">
+                {results.map((r, i) => (
+                    <div key={i}
+                        className={`rounded-xl border transition-all cursor-pointer select-none ${expanded === i ? 'border-indigo-500/40 bg-indigo-500/5' : 'border-slate-700/40 hover:border-slate-600/50 hover:bg-white/3'}`}
+                        onClick={() => setExpanded(expanded === i ? null : i)}
+                    >
+                        {/* Summary row */}
+                        <div className="grid grid-cols-[1.5rem_3rem_4rem_3.5rem_4.5rem_1fr_5rem] gap-2 items-center px-3 py-2 text-xs">
+                            <span className="text-slate-500 font-mono">{i + 1}</span>
+                            <span className={`font-mono font-semibold ${r.eval.passAll ? 'text-emerald-300' : r.eval.score >= r.eval.activeTargetCount - 2 ? 'text-yellow-300' : 'text-slate-300'}`}>
+                                {r.eval.score}/{r.eval.activeTargetCount}
+                            </span>
+                            <span className="font-mono text-slate-400">{r.sse.toFixed(3)}</span>
+                            <span className="font-mono text-slate-300">{r.inputs.conjurationRate}%</span>
+                            <span className="font-mono text-slate-300">{r.inputs.baseRate.toFixed(3)}</span>
+                            {/* Mini weight bar chart */}
+                            <div className="flex items-end gap-px h-4">
+                                {spellLevels.map((l) => {
+                                    const w = r.inputs.levelWeights[l];
+                                    const h = Math.max(1, Math.round((w / globalMax) * 14));
+                                    return (
+                                        <div key={l} className="flex-1 flex flex-col justify-end">
+                                            <div className={`w-full rounded-sm opacity-75 ${RARITY_DOT[LEVEL_TO_RARITY[l]] ?? 'bg-slate-400'}`} style={{ height: `${h}px` }} />
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <button type="button"
+                                onClick={(e) => { e.stopPropagation(); onApply(r); }}
+                                className="text-xs px-2.5 py-1 rounded-lg bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-200 border border-indigo-500/30 transition-colors whitespace-nowrap">
+                                Apply
+                            </button>
+                        </div>
+                        {/* Expanded detail */}
+                        {expanded === i && (
+                            <div className="px-3 pb-3 border-t border-slate-700/30">
+                                <div className="grid grid-cols-5 gap-1 pt-2.5 mb-3">
+                                    {spellLevels.map((l) => (
+                                        <div key={l} className="text-center">
+                                            <div className={`text-xs mb-0.5 ${RARITY_TEXT[LEVEL_TO_RARITY[l]]}`}>
+                                                {l === 0 ? 'C' : `L${l}`}
+                                            </div>
+                                            <div className="font-mono text-xs text-slate-200">{r.inputs.levelWeights[l].toFixed(1)}</div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                                    <div className="flex justify-between"><span className="text-slate-500">Shiny %</span><span className="font-mono text-slate-300">{(r.inputs.shinyChance * 100).toFixed(2)}%</span></div>
+                                    <div className="flex justify-between"><span className="text-slate-500">Shiny ×</span><span className="font-mono text-slate-300">{r.inputs.shinyMultiplierAvg.toFixed(3)}</span></div>
+                                    <div className="flex justify-between"><span className="text-slate-500">Auto %</span><span className="font-mono text-slate-300">{(r.inputs.autographChance * 100).toFixed(2)}%</span></div>
+                                    <div className="flex justify-between"><span className="text-slate-500">Auto ×</span><span className="font-mono text-slate-300">{r.inputs.autoMultiplierAvg.toFixed(3)}</span></div>
+                                    <div className="flex justify-between"><span className="text-slate-500">aLeg ×</span><span className="font-mono text-slate-300">{r.inputs.autoLegMultiplierAvg.toFixed(3)}</span></div>
+                                    <div className="flex justify-between"><span className="text-amber-300/60">Wish ×</span><span className="font-mono text-slate-300">{(r.inputs.cardWeightOverrides[WISH_FILE] ?? 1).toFixed(3)}</span></div>
+                                    <div className="flex justify-between col-span-2"><span className="text-amber-300/60">True Res ×</span><span className="font-mono text-slate-300">{(r.inputs.cardWeightOverrides[TRUEREZ_FILE] ?? 1).toFixed(3)}</span></div>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                ))}
             </div>
         </div>
     );

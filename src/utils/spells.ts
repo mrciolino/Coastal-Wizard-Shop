@@ -1,6 +1,8 @@
 export type SpellRarity = 'common' | 'uncommon' | 'rare' | 'very_rare' | 'legendary';
 export type SpellPool = 'conjuration' | 'staple';
 
+import { STARTER_LEVEL_WEIGHTS, ADVANCED_LEVEL_WEIGHTS, CARD_WEIGHT_OVERRIDES, ADVANCED_PACK } from './constants';
+
 export type SpellCard = {
     id: string;
     fileName: string;
@@ -54,19 +56,11 @@ export const rarityForLevel = (level: number): SpellRarity => {
 export type SpellLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
 export const spellLevels: SpellLevel[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
 
-/** Draw-weight per spell level (0–9). Sum should be ~100 for intuitive percentages. */
-export const levelWeights: Record<SpellLevel, number> = {
-    0: 43.23500614393656,
-    1: 37.369195937951716,
-    2: 8.700581700462225,
-    3: 8.590410263256887,
-    4: 0.887059691327142,
-    5: 0.9214041796614746,
-    6: 0.08440428759742864,
-    7: 0.08411560166974012,
-    8: 0.09104597924034745,
-    9: 0.03677621489648301,
-};
+/** Level draw-weights for the Starter pack (levels 0–5 only; L6–L9 = 0). */
+export const starterLevelWeights: Record<SpellLevel, number> = STARTER_LEVEL_WEIGHTS;
+
+/** Level draw-weights for the Advanced pack. */
+export const levelWeights: Record<SpellLevel, number> = ADVANCED_LEVEL_WEIGHTS;
 
 /** @deprecated Use levelWeights. Kept only for legacy type compatibility. */
 export const rarityWeights: Record<SpellRarity, number> = {
@@ -77,12 +71,7 @@ export const rarityWeights: Record<SpellRarity, number> = {
     legendary: 6,
 };
 
-/** Per-card weight multipliers keyed by file stem (without .png).
- *  e.g. 0.5 = half chance, 0.1 = one-tenth chance. */
-const cardWeightOverrides: Record<string, number> = {
-    '9-True Resurrection-Necromancy': 0.5905,
-    '9-Wish-Conjuration1': 0.0884,
-};
+const cardWeightOverrides: Record<string, number> = CARD_WEIGHT_OVERRIDES;
 
 const imageModules = import.meta.glob('../data/Spells/**/*.png', {
     eager: true,
@@ -170,6 +159,6 @@ export const spellCards = Object.entries(imageModules)
         return left.displayName.localeCompare(right.displayName);
     });
 
-export const currencyPerPack = 1000;
-export const cardsPerPack = 5;
-export const conjurationChance = 0.50;
+export const currencyPerPack = ADVANCED_PACK.packPrice;
+export const cardsPerPack = ADVANCED_PACK.cardsInPack;
+export const conjurationChance = ADVANCED_PACK.conjurationRate / 100;

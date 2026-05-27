@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { RefreshCw } from 'lucide-react';
 
-import { cardsPerPack, conjurationChance, currencyPerPack, levelWeights as defaultLevelWeights, spellCards, spellLevels, type SpellLevel } from './utils/spells';
+import { spellCards, spellLevels, type SpellLevel } from './utils/spells';
+import { STARTER_PACK, ADVANCED_PACK, STARTER_LEVEL_WEIGHTS, ADVANCED_LEVEL_WEIGHTS } from './utils/constants';
 import { generatePack, countBy, hasCard, type GeneratedResult, type SelectedCard } from './utils/pack';
 import { computeSpellOdds } from './utils/odds';
 import { computeMarketData, type MarketEntry } from './utils/pricing';
@@ -14,6 +15,47 @@ const LEVEL_LABELS: Record<number, string> = {
 };
 import OddsModal from './components/OddsModal';
 import MarketModal from './components/MarketModal';
+
+// ── Pack presets ─────────────────────────────────────────
+type PackPreset = {
+    id: string;
+    name: string;
+    packPrice: number;
+    cardsInPack: number;
+    levelWeights: Record<SpellLevel, number>;
+    conjurationRate: number;
+    baseRate: number;
+    shinyMultiplierAvg: number;
+    autoMultiplierAvg: number;
+    autoLegMultiplierAvg: number;
+};
+
+const PACK_PRESETS: PackPreset[] = [
+    {
+        id: 'starter',
+        name: 'Starter',
+        packPrice: STARTER_PACK.packPrice,
+        cardsInPack: STARTER_PACK.cardsInPack,
+        levelWeights: STARTER_LEVEL_WEIGHTS,
+        conjurationRate: STARTER_PACK.conjurationRate,
+        baseRate: STARTER_PACK.baseRate,
+        shinyMultiplierAvg: STARTER_PACK.shinyMultiplierAvg,
+        autoMultiplierAvg: STARTER_PACK.autoMultiplierAvg,
+        autoLegMultiplierAvg: STARTER_PACK.autoLegMultiplierAvg,
+    },
+    {
+        id: 'advanced',
+        name: 'Advanced',
+        packPrice: ADVANCED_PACK.packPrice,
+        cardsInPack: ADVANCED_PACK.cardsInPack,
+        levelWeights: ADVANCED_LEVEL_WEIGHTS,
+        conjurationRate: ADVANCED_PACK.conjurationRate,
+        baseRate: ADVANCED_PACK.baseRate,
+        shinyMultiplierAvg: ADVANCED_PACK.shinyMultiplierAvg,
+        autoMultiplierAvg: ADVANCED_PACK.autoMultiplierAvg,
+        autoLegMultiplierAvg: ADVANCED_PACK.autoLegMultiplierAvg,
+    },
+];
 
 // ── Types ────────────────────────────────────────────────
 type PackSettingKey = 'gold' | 'packPrice' | 'cardsInPack' | 'conjurationRate';
@@ -47,18 +89,22 @@ function toPackSettingInputs(values: Record<PackSettingKey, number>) {
 
 // ── Component ────────────────────────────────────────────
 export default function App() {
-    const [gold, setGold] = useState(10000); 
-    const [packPrice, setPackPrice] = useState(currencyPerPack);
-    const [cardsInPack, setCardsInPack] = useState(cardsPerPack);
-    const [conjurationRate, setConjurationRate] = useState(Math.round(conjurationChance * 100));
+    const [gold, setGold] = useState(10000);
+    const [packPrice, setPackPrice] = useState(PACK_PRESETS[0].packPrice);
+    const [cardsInPack, setCardsInPack] = useState(PACK_PRESETS[0].cardsInPack);
+    const [conjurationRate, setConjurationRate] = useState(PACK_PRESETS[0].conjurationRate);
+    const [baseRate, setBaseRate] = useState(PACK_PRESETS[0].baseRate);
+    const [shinyMultiplierAvg, setShinyMultiplierAvg] = useState(PACK_PRESETS[0].shinyMultiplierAvg);
+    const [autoMultiplierAvg, setAutoMultiplierAvg] = useState(PACK_PRESETS[0].autoMultiplierAvg);
+    const [autoLegMultiplierAvg, setAutoLegMultiplierAvg] = useState(PACK_PRESETS[0].autoLegMultiplierAvg);
     const [packSettingInputs, setPackSettingInputs] = useState<Record<PackSettingKey, string>>(() => toPackSettingInputs({
         gold: 10000,
-        packPrice: currencyPerPack,
-        cardsInPack: cardsPerPack,
-        conjurationRate: Math.round(conjurationChance * 100),
+        packPrice: PACK_PRESETS[0].packPrice,
+        cardsInPack: PACK_PRESETS[0].cardsInPack,
+        conjurationRate: PACK_PRESETS[0].conjurationRate,
     }));
-    const [levelWeights, setLevelWeights] = useState<Record<SpellLevel, number>>(defaultLevelWeights);
-    const [levelWeightInputs, setLevelWeightInputs] = useState<Record<SpellLevel, string>>(() => toLevelWeightInputs(defaultLevelWeights));
+    const [levelWeights, setLevelWeights] = useState<Record<SpellLevel, number>>(PACK_PRESETS[0].levelWeights);
+    const [levelWeightInputs, setLevelWeightInputs] = useState<Record<SpellLevel, string>>(() => toLevelWeightInputs(PACK_PRESETS[0].levelWeights));
     const [packs, setPacks] = useState<GeneratedResult[][]>([]);
     const [lastOpenedAt, setLastOpenedAt] = useState<string | null>(null);
     const [selectedCard, setSelectedCard] = useState<SelectedCard | null>(null);
@@ -73,6 +119,8 @@ export default function App() {
     const mobileSentinelRef = useRef<HTMLDivElement>(null);
     const xlSentinelRef = useRef<HTMLDivElement>(null);
     const [renderedPackCount, setRenderedPackCount] = useState(INITIAL_PACK_RENDER);
+    const [selectedPresetId, setSelectedPresetId] = useState<string>(PACK_PRESETS[0].id);
+    const selectedPreset = PACK_PRESETS.find((p) => p.id === selectedPresetId) ?? PACK_PRESETS[0];
 
     const focusMobileSettingsPanel = useCallback(() => {
         window.requestAnimationFrame(() => {
@@ -159,10 +207,10 @@ export default function App() {
     useEffect(() => {
         setMarketData(null);
         const timer = setTimeout(() => {
-            setMarketData(computeMarketData(spellOdds, { packPrice, cardsInPack }));
+            setMarketData(computeMarketData(spellOdds, { packPrice, cardsInPack, baseRate, shinyMultiplierAvg, autoMultiplierAvg, autoLegMultiplierAvg }));
         }, 400);
         return () => clearTimeout(timer);
-    }, [spellOdds, packPrice, cardsInPack]);
+    }, [spellOdds, packPrice, cardsInPack, baseRate, shinyMultiplierAvg, autoMultiplierAvg, autoLegMultiplierAvg]);
 
     const marketMap = useMemo(
         () => new Map(marketData?.map((e) => [e.spell.id, e]) ?? []),
@@ -290,6 +338,29 @@ export default function App() {
         setRenderedPackCount(INITIAL_PACK_RENDER);
         setShowMobileStats(false);
     }
+    function applyPreset(preset: PackPreset) {
+        setSelectedPresetId(preset.id);
+        setPackPrice(preset.packPrice);
+        setCardsInPack(preset.cardsInPack);
+        setConjurationRate(preset.conjurationRate);
+        setBaseRate(preset.baseRate);
+        setShinyMultiplierAvg(preset.shinyMultiplierAvg);
+        setAutoMultiplierAvg(preset.autoMultiplierAvg);
+        setAutoLegMultiplierAvg(preset.autoLegMultiplierAvg);
+        setLevelWeights(preset.levelWeights);
+        setLevelWeightInputs(toLevelWeightInputs(preset.levelWeights));
+        setPackSettingInputs((cur) => ({
+            ...cur,
+            packPrice: String(preset.packPrice),
+            cardsInPack: String(preset.cardsInPack),
+            conjurationRate: String(preset.conjurationRate),
+        }));
+        setPacks([]);
+        setLastOpenedAt(null);
+        setSelectedCard(null);
+        setFlippedCards({});
+        setRenderedPackCount(INITIAL_PACK_RENDER);
+    }
     function handleMobileSettingsClick() {
         setShowMobileStats(false);
         setShowMobileSettings((cur) => !cur);
@@ -330,32 +401,31 @@ export default function App() {
             className={`${panel} overflow-hidden xl:hidden focus:outline-none focus:ring-2 focus:ring-indigo-500/50`}
         >
             <div className="px-3 py-2 border-b border-slate-700/50 grid gap-2">
-                <p className={secTitle}>Pack settings</p>
-                <div className="grid grid-cols-2 gap-2">
-                    {packSettings.map(({ key, label, inputValue, min, max, step }) => (
-                            <label key={label} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
-                                <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{label}</span>
-                                <input type="number" inputMode="numeric" min={min} max={max} step={step} value={inputValue}
-                                    onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
-                            </label>
+                <p className={secTitle}>Pack type</p>
+                <div className="flex gap-2">
+                    {PACK_PRESETS.map((preset) => (
+                        <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => applyPreset(preset)}
+                            className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition-all border flex flex-col items-center leading-tight ${selectedPresetId === preset.id ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12'}`}
+                        >
+                            <span className="block">{preset.name}</span>
+                            <span className="block text-[10px] font-normal opacity-70">{preset.packPrice.toLocaleString()} gp</span>
+                        </button>
                     ))}
                 </div>
             </div>
 
             <div className="px-3 py-2 border-b border-slate-700/50 grid gap-2">
-                <div className="flex items-center justify-between gap-2">
-                    <p className={secTitle}>Level weights</p>
-                    {Math.abs(levelWeightSum - 100) > 0.5 && <span className="text-yellow-400/80 text-[10px] font-medium">Sum ≠ 100 (now {levelWeightSum.toFixed(1)})</span>}
-                </div>
-                <div className="grid grid-cols-3 gap-1.5">
-                    {spellLevels.map((lvl) => (
-                        <label key={lvl} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
-                            <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{LEVEL_LABELS[lvl]}</span>
-                            <input type="number" inputMode="decimal" min={0} step={0.1} value={levelWeightInputs[lvl as SpellLevel]}
-                                onChange={(e) => handleLevelWeightInputChange(lvl as SpellLevel, e.target.value)} onBlur={() => handleLevelWeightInputBlur(lvl as SpellLevel)} className={inp} />
-                        </label>
-                    ))}
-                </div>
+                <p className={secTitle}>Pack settings</p>
+                {packSettings.filter((s) => s.key === 'gold').map(({ key, label, inputValue, min, max, step }) => (
+                    <label key={label} className="grid gap-0.5 p-1.5 rounded-xl bg-white/5 border border-slate-700/50">
+                        <span className="text-[10px] uppercase tracking-wider text-indigo-300/80 font-medium leading-tight">{label}</span>
+                        <input type="number" inputMode="numeric" min={min} max={max} step={step} value={inputValue}
+                            onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
+                    </label>
+                ))}
             </div>
 
             <div className="px-3 py-2 grid gap-1.5">
@@ -440,7 +510,7 @@ export default function App() {
                                                         if (!mEntry) return null;
                                                         const price = entry.isShiny ? mEntry.shinyPrice
                                                             : entry.isAutographed ? (mEntry.autographPrice ?? mEntry.currentPrice)
-                                                            : mEntry.currentPrice;
+                                                                : mEntry.currentPrice;
                                                         return (
                                                             <div className="flex items-center justify-start gap-1.5 mt-1.5">
                                                                 <span className="text-xs font-semibold text-amber-400">{price} gp</span>
@@ -540,7 +610,7 @@ export default function App() {
             <section className="hidden xl:grid xl:h-full max-w-screen-3xl mx-auto gap-3 xl:grid-cols-[18rem_minmax(0,1fr)_16rem] xl:px-1 xl:py-0">
 
                 {/* ── LEFT RAIL ── */}
-                <aside className="min-w-0 flex flex-col overflow-y-auto py-4">
+                <aside className="min-w-0 overflow-y-auto py-4">
                     <div className={`${panel} grid gap-0 p-0 overflow-hidden`}>
 
                         <div className="px-4 pt-4 pb-3 border-b border-slate-700/50">
@@ -550,66 +620,63 @@ export default function App() {
                         </div>
 
                         <div className="px-4 py-2.5 border-b border-slate-700/50 grid gap-1.5">
+                            <p className={secTitle}>Pack type</p>
                             <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={openPacks}
-                                    disabled={packCount === 0 || cardsInPack <= 0}
-                                    className="flex-1 rounded-xl px-3 py-2 bg-gradient-to-br from-violet-500 to-blue-500 text-white text-sm font-semibold shadow-lg transition-all hover:-translate-y-px hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:brightness-100 border-0"
-                                >
-                                    Open {packCount} pack{packCount !== 1 ? 's' : ''}
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={clearResults}
-                                    className="flex-1 rounded-xl px-3 py-2 bg-white/8 text-slate-200 text-sm font-medium transition-all hover:-translate-y-px hover:bg-white/12 border border-slate-700/50"
-                                >
-                                    Clear
-                                </button>
+                                {PACK_PRESETS.map((preset) => (
+                                    <button
+                                        key={preset.id}
+                                        type="button"
+                                        onClick={() => applyPreset(preset)}
+                                        className={`flex-1 rounded-xl px-3 py-2 text-sm font-semibold transition-all border flex flex-col items-center leading-tight ${selectedPresetId === preset.id ? 'bg-indigo-500/20 text-indigo-200 border-indigo-500/40' : 'bg-white/8 text-slate-200 border-slate-700/50 hover:bg-white/12'}`}
+                                    >
+                                        <span className="block">{preset.name}</span>
+                                        <span className="block text-[10px] font-normal opacity-70">{preset.packPrice.toLocaleString()} gp</span>
+                                    </button>
+                                ))}
                             </div>
-                            <div className="flex gap-2">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowStatsModal(true)}
-                                    className="flex-1 rounded-xl px-3 py-1.5 bg-white/8 text-slate-200 text-xs font-medium transition-all hover:bg-white/12 border border-slate-700/50"
-                                >
-                                    📊 Odds
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setShowEconomyModal(true)}
-                                    className="flex-1 rounded-xl px-3 py-1.5 bg-white/8 text-slate-200 text-xs font-medium transition-all hover:bg-white/12 border border-slate-700/50"
-                                >
-                                    💰 Market
-                                </button>
-                            </div>
+                        </div>
+
+                        <div className="px-4 py-2.5 border-b border-slate-700/50 grid gap-1.5">
+                            <button
+                                type="button"
+                                onClick={openPacks}
+                                disabled={packCount === 0 || cardsInPack <= 0}
+                                className="w-full rounded-xl px-3 py-2 bg-gradient-to-br from-violet-500 to-blue-500 text-white text-sm font-semibold shadow-lg transition-all hover:-translate-y-px hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed disabled:translate-y-0 disabled:brightness-100 border-0"
+                            >
+                                Open {packCount} {selectedPreset.name}{packCount !== 1 ? 's' : ''}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={clearResults}
+                                className="w-full rounded-xl px-3 py-2 bg-white/8 text-slate-200 text-sm font-medium transition-all hover:-translate-y-px hover:bg-white/12 border border-slate-700/50"
+                            >
+                                Clear
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowStatsModal(true)}
+                                className="w-full rounded-xl px-3 py-1.5 bg-white/8 text-slate-200 text-xs font-medium transition-all hover:bg-white/12 border border-slate-700/50"
+                            >
+                                📊 Odds
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setShowEconomyModal(true)}
+                                className="w-full rounded-xl px-3 py-1.5 bg-white/8 text-slate-200 text-xs font-medium transition-all hover:bg-white/12 border border-slate-700/50"
+                            >
+                                💰 Market
+                            </button>
                         </div>
 
                         <div className="px-4 py-3 border-b border-slate-700/50 grid gap-2.5">
                             <p className={secTitle}>Pack settings</p>
-                            {packSettings.map(({ key, label, inputValue, min, max, step }) => (
-                                    <label key={label} className={field}>
-                                        <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{label}</span>
-                                        <input type="number" min={min} max={max} step={step} value={inputValue}
-                                            onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
-                                    </label>
+                            {packSettings.filter((s) => s.key === 'gold').map(({ key, label, inputValue, min, max, step }) => (
+                                <label key={label} className={field}>
+                                    <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{label}</span>
+                                    <input type="number" min={min} max={max} step={step} value={inputValue}
+                                        onChange={(e) => handlePackSettingInputChange(key, e.target.value)} onBlur={() => handlePackSettingInputBlur(key)} className={inp} />
+                                </label>
                             ))}
-                        </div>
-
-                        <div className="px-4 py-3 border-b border-slate-700/50 grid gap-2.5">
-                            <div className="flex items-center justify-between gap-2">
-                                <p className={secTitle}>Level weights</p>
-                                {Math.abs(levelWeightSum - 100) > 0.5 && <span className="text-yellow-400/80 text-xs font-medium">Sum ≠ 100 (now {levelWeightSum.toFixed(1)})</span>}
-                            </div>
-                            <div className="grid grid-cols-2 gap-2">
-                                {spellLevels.map((lvl) => (
-                                    <label key={lvl} className={field}>
-                                        <span className="text-xs uppercase tracking-wider text-indigo-300/80 font-medium">{LEVEL_LABELS[lvl]}</span>
-                                        <input type="number" inputMode="decimal" min={0} step={0.1} value={levelWeightInputs[lvl as SpellLevel]}
-                                            onChange={(e) => handleLevelWeightInputChange(lvl as SpellLevel, e.target.value)} onBlur={() => handleLevelWeightInputBlur(lvl as SpellLevel)} className={inp} />
-                                    </label>
-                                ))}
-                            </div>
                         </div>
 
                         <div className="px-4 py-3 grid gap-2.5">
@@ -934,7 +1001,7 @@ export default function App() {
                                         if (!mEntry) return null;
                                         const price = selectedCard.isShiny ? mEntry.shinyPrice
                                             : selectedCard.isAutographed ? (mEntry.autographPrice ?? mEntry.currentPrice)
-                                            : mEntry.currentPrice;
+                                                : mEntry.currentPrice;
                                         return (
                                             <div className="rounded-xl p-3 bg-white/5 border border-slate-700/50">
                                                 <p className={`${secTitle} mb-1.5`}>Market price</p>
@@ -1017,7 +1084,7 @@ export default function App() {
 
             {/* ══ SPELL ODDS MODAL ═══════════════════════════════════ */}
             {showStatsModal && (
-                <OddsModal onClose={() => setShowStatsModal(false)} spellOdds={spellOdds} cardsInPack={cardsInPack} packPrice={packPrice} conjurationRate={conjurationRate} levelWeights={levelWeights} />
+                <OddsModal onClose={() => setShowStatsModal(false)} initialPackId={selectedPresetId} />
             )}
 
             {/* ══ ECONOMY MODAL ══════════════════════════════════════ */}

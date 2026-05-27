@@ -11,7 +11,8 @@ function Root() {
         window.addEventListener('popstate', onPop);
         return () => window.removeEventListener('popstate', onPop);
     }, []);
-    return path === '/sim' ? <Simulation /> : <App />;
+    if (path === '/sim') return <Simulation />;
+    return <App />;
 }
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
