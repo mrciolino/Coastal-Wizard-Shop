@@ -63,14 +63,46 @@ src/
 
 ## Pack presets
 
+### Pack settings
+
 | Setting | Starter | Advanced |
-|---------|---------|----------|
-| Pack price | 500 gp | 1000 gp |
+|---------|--------:|--------:|
+| Pack price | 500 gp | 1,000 gp |
 | Cards per pack | 5 | 5 |
 | Conjuration rate | 71% | 50% |
 | Levels available | L0–L5 | L0–L9 |
-| Shiny chance (per card) | ~4.0% | ~9.4% |
-| Autograph chance (per card) | ~10.7% | ~2.4% |
+| Base rate (EV multiplier) | 1.063 | 0.983 |
+
+### Variant rates
+
+| Variant | Starter | Advanced |
+|---------|--------:|--------:|
+| Shiny chance (per card) | 4.01% | 9.37% |
+| Shiny price multiplier (avg) | ×1.403 | ×1.105 |
+| Autograph chance (per card) | 10.73% | 2.37% |
+| Autograph multiplier — non-legendary (avg) | ×1.175 | ×1.092 |
+| Autograph multiplier — legendary (avg) | ×1.573 | ×2.220 |
+
+> Autographed cards only drop on Rare and Legendary cards.
+
+### Level draw weights
+
+Weights are normalised at draw time; values below represent approximate draw % per card slot.
+
+| Level | Rarity | Starter | Advanced |
+|------:|--------|--------:|--------:|
+| L0 (Cantrip) | Common | 40.47% | 43.24% |
+| L1 | Common | 38.01% | 37.37% |
+| L2 | Uncommon | 9.82% | 8.70% |
+| L3 | Rare | 10.06% | 8.59% |
+| L4 | Very Rare | 0.77% | 0.89% |
+| L5 | Very Rare | 0.87% | 0.92% |
+| L6 | Legendary | — | 0.08% |
+| L7 | Legendary | — | 0.08% |
+| L8 | Legendary | — | 0.09% |
+| L9 | Legendary | — | 0.04% |
+
+Weights are defined in `utils/constants.ts` (`STARTER_LEVEL_WEIGHTS`, `ADVANCED_LEVEL_WEIGHTS`) and are editable live on the `/sim` optimizer page.
 
 ## Rarity mapping
 
