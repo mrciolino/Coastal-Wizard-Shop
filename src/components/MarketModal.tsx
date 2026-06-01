@@ -20,9 +20,10 @@ type MarketModalProps = {
     cardsInPack: number;
     conjurationRate: number;
     levelDrawPcts: Record<number, number>;
+    presetName: string;
 };
 
-export default function MarketModal({ onClose, marketData, packPrice, cardsInPack, conjurationRate, levelDrawPcts }: MarketModalProps) {
+export default function MarketModal({ onClose, marketData, packPrice, cardsInPack, conjurationRate, levelDrawPcts, presetName }: MarketModalProps) {
     const [search, setSearch] = useState('');
     const [sortKey, setSortKey] = useState<SortKey>('price');
     const [sortDir, setSortDir] = useState<SortDir>('desc');
@@ -71,7 +72,7 @@ export default function MarketModal({ onClose, marketData, packPrice, cardsInPac
                 {/* Header */}
                 <div className="flex items-center justify-between gap-2 px-3 sm:px-5 py-2 sm:py-3 border-b border-slate-700/60 shrink-0">
                     <div>
-                        <h2 id="economy-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">📈 Marketplace</h2>
+                        <h2 id="economy-modal-title" className="text-base sm:text-lg font-bold text-slate-50 m-0">📈 Marketplace · {presetName}</h2>
                         <p className="hidden sm:block text-xs text-slate-400 mt-0.5 m-0">Simulated fair-value prices based on pull odds · refreshes each open</p>
                         <div className="hidden sm:flex flex-wrap gap-1 mt-1">
                             <span className={tag}>{packPrice} gp/pack</span>
@@ -79,7 +80,7 @@ export default function MarketModal({ onClose, marketData, packPrice, cardsInPac
                             <span className={tag}>{conjurationRate}% conj · {100 - conjurationRate}% staple</span>
                             {spellLevels.map((lvl) => levelDrawPcts[lvl] != null && levelDrawPcts[lvl]! > 0 ? (
                                 <span key={lvl} className="px-2 py-0.5 rounded-full text-xs border border-slate-600/40 text-slate-300 bg-slate-800/40">
-                                    {LEVEL_LABELS[lvl]} {(levelDrawPcts[lvl]! * 100).toFixed(1)}%
+                                    {LEVEL_LABELS[lvl]} {((p) => p < 0.1 ? p.toFixed(3) : p.toFixed(1))(levelDrawPcts[lvl]! * 100)}%
                                 </span>
                             ) : null)}
                         </div>

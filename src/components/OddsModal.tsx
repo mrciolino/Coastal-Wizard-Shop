@@ -110,7 +110,7 @@ export default function OddsModal({ onClose, initialPackId = 'starter' }: OddsMo
                             <span className={tag}>{packPrice} gp/pack</span>
                             {spellLevels.map((lvl) => levelDrawPcts[lvl] > 0 ? (
                                 <span key={lvl} className="px-2 py-0.5 rounded-full text-xs border border-slate-600/40 text-slate-300 bg-slate-800/40">
-                                    {LEVEL_LABELS[lvl]} {(levelDrawPcts[lvl] * 100).toFixed(1)}%
+                                    {LEVEL_LABELS[lvl]} {((p) => p < 0.1 ? p.toFixed(3) : p.toFixed(1))(levelDrawPcts[lvl] * 100)}%
                                 </span>
                             ) : null)}
                         </div>

@@ -13,12 +13,12 @@
 
 /** Level draw-weights for the Starter pack (levels 0–5 only; L6–L9 = 0). */
 export const STARTER_LEVEL_WEIGHTS: Record<0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, number> = {
-    0: 40.472224930673406,
-    1: 38.005285828213104,
-    2: 9.821839543034914,
-    3: 10.063183866286199,
-    4: 0.7671088470974834,
-    5: 0.8703569846949073,
+    0: 41.695538589794886,
+    1: 35.47544205304725,
+    2: 10.132151329879402,
+    3: 10.974836888850252,
+    4: 0.8285241308842675,
+    5: 0.8935070075439289,
     6: 0,
     7: 0,
     8: 0,
@@ -27,50 +27,50 @@ export const STARTER_LEVEL_WEIGHTS: Record<0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 
 /** Level draw-weights for the Advanced pack (all levels). */
 export const ADVANCED_LEVEL_WEIGHTS: Record<0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9, number> = {
-    0: 43.23500614393656,
-    1: 37.369195937951716,
-    2: 8.700581700462225,
-    3: 8.590410263256887,
-    4: 0.887059691327142,
-    5: 0.9214041796614746,
-    6: 0.08440428759742864,
-    7: 0.08411560166974012,
-    8: 0.09104597924034745,
-    9: 0.03677621489648301,
+    0: 42.1135974217316,
+    1: 35.97714197801657,
+    2: 10.231627314784125,
+    3: 9.797937338090453,
+    4: 0.7860246774568979,
+    5: 0.8036366775116793,
+    6: 0.0813526564643644,
+    7: 0.082628765448164,
+    8: 0.09041444064929224,
+    9: 0.03563872984685617,
 };
 
 // ── Per-card weight overrides ───────────────────────────────────────────────
 /** Per-card draw-weight multipliers, keyed by file stem (without .png).
  *  Values < 1 reduce pull rate; values > 1 increase it. */
 export const CARD_WEIGHT_OVERRIDES: Record<string, number> = {
-    '9-True Resurrection-Necromancy': 0.5905,
-    '9-Wish-Conjuration1': 0.0884,
+    '9-True Resurrection-Necromancy': 0.6250467545192004,
+    '9-Wish-Conjuration1': 0.03874209458391963,
 };
 
 // ── Starter pack ─────────────────────────────────────────────────────────────
 export const STARTER_PACK = {
     packPrice: 500,                           // gold per pack
     cardsInPack: 5,                           // cards dealt per pack
-    conjurationRate: 71,                      // % chance each slot is from the conjuration pool
-    baseRate: 1.063337188199646,              // EV multiplier applied before variant premiums
-    shinyChance: 0.040131031097955364,        // per-card probability of the shiny variant
-    shinyMultiplierAvg: 1.4033425305229914,   // E[shiny price ÷ base price]
-    autographChance: 0.10731757148505033,     // per-card probability of the autograph variant
-    autoMultiplierAvg: 1.174678237489211,     // E[autograph×] non-legendary cards
-    autoLegMultiplierAvg: 1.5726706657069898, // E[autograph×] legendary cards
+    conjurationRate: 69,                      // % chance each slot is from the conjuration pool
+    baseRate: 1.0,                            // EV multiplier applied before variant premiums
+    shinyChance: 0.02,                        // per-card probability of the shiny variant
+    shinyMultiplierAvg: 1.5413559153316634,   // E[shiny price ÷ base price]
+    autographChance: 0.10943140743308133,     // per-card probability of the autograph variant
+    autoMultiplierAvg: 1.126961930927427,     // E[autograph×] non-legendary cards
+    autoLegMultiplierAvg: 1.1996346897768735, // E[autograph×] legendary cards
 } as const;
 
 // ── Advanced pack ────────────────────────────────────────────────────────────
 export const ADVANCED_PACK = {
     packPrice: 1000,
     cardsInPack: 5,
-    conjurationRate: 50,
-    baseRate: 0.9826034674399771,
-    shinyChance: 0.093668422968291,
-    shinyMultiplierAvg: 1.1049218858790801,
-    autographChance: 0.023703215398704562,
-    autoMultiplierAvg: 1.0919201993422551,
-    autoLegMultiplierAvg: 2.2202536900734455,
+    conjurationRate: 69,
+    baseRate: 0.6,
+    shinyChance: 0.16471963203775405,
+    shinyMultiplierAvg: 5,
+    autographChance: 0.039360314723457246,
+    autoMultiplierAvg: 2.4855530810962447,
+    autoLegMultiplierAvg: 1.7204657425247067,
 } as const;
 
 // ── Market volatility / pricing model ────────────────────────────────────────
