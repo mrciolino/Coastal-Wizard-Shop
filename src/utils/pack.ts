@@ -1,6 +1,21 @@
 import { spellCards, type SpellCard, type SpellPool, type SpellLevel } from './spells';
 import { weightedPick } from './roll';
 
+export function invertLevelWeights(weights: Record<SpellLevel, number>): Record<SpellLevel, number> {
+    return {
+        0: weights[9],
+        1: weights[8],
+        2: weights[7],
+        3: weights[6],
+        4: weights[5],
+        5: weights[4],
+        6: weights[3],
+        7: weights[2],
+        8: weights[1],
+        9: weights[0],
+    };
+}
+
 export type GeneratedResult = {
     card: SpellCard;
     pool: SpellPool;

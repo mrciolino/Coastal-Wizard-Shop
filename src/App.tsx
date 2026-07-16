@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { spellCards } from './utils/spells';
-import { generatePack, countBy, hasCard, type GeneratedResult, type SelectedCard } from './utils/pack';
+import { generatePack, invertLevelWeights, countBy, hasCard, type GeneratedResult, type SelectedCard } from './utils/pack';
 import { computeSpellOdds } from './utils/odds';
 import { computeMarketData, type MarketEntry } from './utils/pricing';
 import { PACK_PRESETS, type PackPreset } from './utils/presets';
@@ -32,6 +32,7 @@ export default function App() {
     const [flippedCards, setFlippedCards] = useState<Record<string, boolean>>({});
     const [marketData, setMarketData] = useState<MarketEntry[] | null>(null);
     const [renderedPackCount, setRenderedPackCount] = useState(INITIAL_PACK_RENDER);
+    const [isMirrored, setIsMirrored] = useState(false);
 
     // ── UI state ─────────────────────────────────────────
     const [showMobileSettings, setShowMobileSettings] = useState(false);
@@ -44,6 +45,10 @@ export default function App() {
     const xlSentinelRef = useRef<HTMLDivElement>(null);
 
     const selectedPreset = PACK_PRESETS.find((p) => p.id === selectedPresetId) ?? PACK_PRESETS[0];
+    const effectiveLevelWeights = useMemo(
+        () => (isMirrored ? invertLevelWeights(selectedPreset.levelWeights) : selectedPreset.levelWeights),
+        [isMirrored, selectedPreset.levelWeights],
+    );
 
     // ── Derived values ───────────────────────────────────
     const visiblePacks = useMemo(
@@ -236,7 +241,7 @@ export default function App() {
 
     function openPacks() {
         setPacks(Array.from({ length: packCount }, () =>
-            generatePack(selectedPreset.cardsInPack, selectedPreset.conjurationRate / 100, selectedPreset.levelWeights, selectedPreset.shinyChance, selectedPreset.autographChance)));
+            generatePack(selectedPreset.cardsInPack, selectedPreset.conjurationRate / 100, effectiveLevelWeights, selectedPreset.shinyChance, selectedPreset.autographChance)));
         const now = new Date();
         setLastOpenedAt(
             now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -309,6 +314,8 @@ export default function App() {
                             presets={PACK_PRESETS}
                             selectedPreset={selectedPreset}
                             onSelectPreset={applyPreset}
+                            isMirrored={isMirrored}
+                            onToggleMirror={() => setIsMirrored((m) => !m)}
                             goldInputValue={goldInput}
                             onGoldChange={handleGoldChange}
                             onGoldBlur={handleGoldBlur}
@@ -327,6 +334,8 @@ export default function App() {
                     presets={PACK_PRESETS}
                     selectedPreset={selectedPreset}
                     onSelectPreset={applyPreset}
+                    isMirrored={isMirrored}
+                    onToggleMirror={() => setIsMirrored((m) => !m)}
                     goldInputValue={goldInput}
                     onGoldChange={handleGoldChange}
                     onGoldBlur={handleGoldBlur}
