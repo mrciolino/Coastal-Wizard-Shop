@@ -58,7 +58,10 @@ export default function DesktopLeftRail({
                             </button>
                             <div className="absolute top-full right-0 mt-1 z-50 w-52 rounded-xl bg-slate-900 border border-slate-700/60 shadow-xl p-2.5 opacity-0 group-hover/mirror:opacity-100 transition-opacity pointer-events-none">
                                 <p className="text-xs font-semibold text-slate-300 mb-1.5 pb-1 border-b border-slate-700/50">
-                                    Inverted Probabilities
+                                    <span className="block">Mirror Mode</span>
+                                    <span className={`block text-[10px] font-normal mt-0.5 ${isMirrored ? 'text-amber-300' : 'text-slate-400'}`}>
+                                        {isMirrored ? 'Active' : 'Inactive'}
+                                    </span>
                                 </p>
                                 <div className="grid grid-cols-[auto_1fr_auto] items-center gap-x-2 gap-y-1 my-1.5">
                                     {mirroredRarityRows.map(({ rarity, pct, levelLabel }) => (
